@@ -35,8 +35,8 @@ async function request(path, options = {}, usuario) {
 }
 
 function Login({ onLogin }) {
-  const [usuario, setUsuario] = useState('admin');
-  const [senha, setSenha] = useState('admin123');
+  const [usuario, setUsuario] = useState('');
+  const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -67,7 +67,6 @@ function Login({ onLogin }) {
         <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} />
         {erro && <div className="alert error">{erro}</div>}
         <button className="btn primary" disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
-        <div className="hint">Admin: admin / admin123<br />Vendedor: vendedor / 1234</div>
       </form>
     </div>
   );

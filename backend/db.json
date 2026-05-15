@@ -15,14 +15,6 @@
       "senha": "1234",
       "perfil": "Vendedor",
       "email": "vendedor@empresa.com"
-    },
-    {
-      "id": "user_kMqxY3uP",
-      "nome": "Miguel",
-      "usuario": "Miguel",
-      "senha": "1234",
-      "perfil": "Vendedor",
-      "email": ""
     }
   ],
   "clientes": [
@@ -47,5 +39,29 @@
       "atualizadoEm": "2026-05-15T12:00:00.000Z"
     }
   ],
-  "visitas": []
+  "visitas": [
+    {
+      "id": "vis_001",
+      "clienteId": "cli_001",
+      "vendedorId": "user_vendedor_001",
+      "dataAgendada": "2026-05-16",
+      "horaAgendada": "09:00",
+      "tipoVisita": "Prospecção",
+      "status": "Agendada",
+      "checkinHora": null,
+      "checkoutHora": null,
+      "duracaoMinutos": null,
+      "quemAtendeu": "",
+      "cargoContato": "",
+      "resumo": "",
+      "necessidade": "",
+      "produtoInteresse": "",
+      "potencialCompra": "Alto",
+      "proximaAcao": "",
+      "proximaData": "",
+      "observacoes": "",
+      "criadoEm": "2026-05-15T12:00:00.000Z",
+      "atualizadoEm": "2026-05-15T12:00:00.000Z"
+    }
+  ]
 }
