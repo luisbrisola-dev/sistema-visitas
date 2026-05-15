@@ -1,0 +1,51 @@
+{
+  "usuarios": [
+    {
+      "id": "user_admin_001",
+      "nome": "Administrador",
+      "usuario": "admin",
+      "senha": "admin123",
+      "perfil": "Administrador",
+      "email": "admin@empresa.com"
+    },
+    {
+      "id": "user_vendedor_001",
+      "nome": "Vendedor Externo",
+      "usuario": "vendedor",
+      "senha": "1234",
+      "perfil": "Vendedor",
+      "email": "vendedor@empresa.com"
+    },
+    {
+      "id": "user_kMqxY3uP",
+      "nome": "Miguel",
+      "usuario": "Miguel",
+      "senha": "1234",
+      "perfil": "Vendedor",
+      "email": ""
+    }
+  ],
+  "clientes": [
+    {
+      "id": "cli_001",
+      "razaoSocial": "Indústria Exemplo LTDA",
+      "nomeFantasia": "Indústria Exemplo",
+      "cnpj": "00.000.000/0001-00",
+      "segmento": "Indústria",
+      "cidade": "São José dos Campos",
+      "estado": "SP",
+      "endereco": "Av. Industrial, 1000",
+      "contato": "Carlos Souza",
+      "cargoContato": "Comprador",
+      "telefone": "(12) 99999-9999",
+      "email": "compras@exemplo.com",
+      "vendedorId": "user_vendedor_001",
+      "status": "Prospect",
+      "potencial": "Alto",
+      "observacoes": "Cliente com potencial para compra recorrente.",
+      "criadoEm": "2026-05-15T12:00:00.000Z",
+      "atualizadoEm": "2026-05-15T12:00:00.000Z"
+    }
+  ],
+  "visitas": []
+}
