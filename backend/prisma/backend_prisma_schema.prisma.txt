@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id           String    @id @default(cuid())
+  nome         String
+  usuario      String    @unique
+  senhaHash    String
+  perfil       String    @default("Vendedor")
+  email        String?
+  ativo        Boolean   @default(true)
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+  clientes     Cliente[] @relation("CarteiraVendedor")
+  visitas      Visita[]  @relation("VisitasVendedor")
+}
+
+model Cliente {
+  id            String   @id @default(cuid())
+  razaoSocial   String
+  nomeFantasia  String
+  cnpj          String?
+  segmento      String?
+  cidade        String?
+  estado        String?
+  endereco      String?
+  contato       String?
+  cargoContato  String?
+  telefone      String?
+  email         String?
+  vendedorId    String
+  status        String   @default("Prospect")
+  potencial     String   @default("Médio")
+  observacoes   String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+  vendedor      Usuario  @relation("CarteiraVendedor", fields: [vendedorId], references: [id])
+  visitas       Visita[]
+
+  @@index([vendedorId])
+  @@index([status])
+  @@index([cidade])
+}
+
+model Visita {
+  id                String    @id @default(cuid())
+  clienteId         String
+  vendedorId        String
+  dataAgendada      String
+  horaAgendada      String
+  tipoVisita        String    @default("Prospecção")
+  status            String    @default("Agendada")
+  checkinHora       DateTime?
+  checkoutHora      DateTime?
+  duracaoMinutos    Int?
+  quemAtendeu       String?
+  cargoContato      String?
+  resumo            String?
+  necessidade       String?
+  produtoInteresse  String?
+  potencialCompra   String?
+  proximaAcao       String?
+  proximaData       String?
+  observacoes       String?
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
+  cliente           Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  vendedor          Usuario   @relation("VisitasVendedor", fields: [vendedorId], references: [id])
+
+  @@index([clienteId])
+  @@index([vendedorId])
+  @@index([status])
+  @@index([dataAgendada])
+}

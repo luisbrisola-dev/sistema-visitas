@@ -1,32 +1,49 @@
-# Sistema de Controle de Visitas Comerciais
+# Sistema de Controle de Visitas Comerciais — versão produção
 
-MVP pronto para rodar localmente.
+Stack:
+- Frontend: React + Vite
+- Backend: Node + Express
+- Banco: Supabase PostgreSQL
+- ORM: Prisma
+- Autenticação: JWT + bcrypt
+- Deploy: Vercel
 
-## Acessos
+## 1. Banco Supabase
 
-Administrador:
-- usuário: `admin`
-- senha: `admin123`
+Crie um projeto no Supabase e copie as conexões PostgreSQL:
 
-Vendedor:
-- usuário: `vendedor`
-- senha: `1234`
+- DATABASE_URL: conexão pooler/transaction, porta 6543
+- DIRECT_URL: conexão direta, porta 5432
 
-## Como rodar
+No backend, crie um arquivo `.env` baseado em `backend/.env.example`.
 
-Abra dois terminais.
-
-### Terminal 1 - Backend
+## 2. Rodar backend local
 
 ```bash
 cd backend
 npm install
+npx prisma generate
+npx prisma db push
+npm run db:seed
 npm run dev
 ```
 
-API em: `http://localhost:3001`
+Teste:
 
-### Terminal 2 - Frontend
+```txt
+http://localhost:3001/api/health
+```
+
+Acessos iniciais criados pelo seed:
+
+```txt
+admin / admin123
+vendedor / 1234
+```
+
+## 3. Rodar frontend local
+
+Crie o arquivo `frontend/.env` baseado em `frontend/.env.example`.
 
 ```bash
 cd frontend
@@ -34,23 +51,69 @@ npm install
 npm run dev
 ```
 
-Sistema em: `http://localhost:5173`
+Acesse:
 
-## Funcionalidades
+```txt
+http://localhost:5173
+```
 
-- Login com perfil Administrador e Vendedor
-- Cadastro de clientes
-- Cadastro de vendedores/usuários pelo administrador
-- Agenda de visitas
-- Registro de visita realizada
-- Check-in e check-out
-- Status do cliente pós-visita
-- Dashboard com KPIs
-- Visão por vendedor
-- Permissão: vendedor vê apenas sua carteira e suas visitas
+## 4. Deploy backend na Vercel
 
-## Persistência
+Crie um projeto separado na Vercel apontando para o mesmo repositório.
 
-Os dados ficam em `backend/db.json`.
+Configuração:
 
-Para zerar ou editar a base manualmente, altere esse arquivo com o backend desligado.
+```txt
+Root Directory: backend
+Framework Preset: Other
+Build Command: npm run vercel-build
+Output Directory: deixe vazio
+```
+
+Variáveis de ambiente na Vercel do backend:
+
+```txt
+DATABASE_URL
+DIRECT_URL
+JWT_SECRET
+FRONTEND_URL=https://URL-DO-SEU-FRONTEND.vercel.app
+```
+
+Depois do deploy, teste:
+
+```txt
+https://URL-DO-BACKEND.vercel.app/api/health
+```
+
+## 5. Deploy frontend na Vercel
+
+No projeto frontend já existente, configure:
+
+```txt
+Root Directory: frontend
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+```
+
+Variável de ambiente na Vercel do frontend:
+
+```txt
+VITE_API_URL=https://URL-DO-BACKEND.vercel.app/api
+```
+
+Depois faça redeploy do frontend.
+
+## 6. Fluxo final
+
+```txt
+Usuário → Frontend Vercel → Backend Vercel → Supabase PostgreSQL
+```
+
+## 7. Observações importantes
+
+- O aviso de usuário/senha foi removido da tela de login.
+- As senhas não ficam salvas em texto aberto: são salvas com bcrypt.
+- O login usa token JWT.
+- Admin visualiza tudo.
+- Vendedor visualiza apenas sua carteira e suas visitas.
