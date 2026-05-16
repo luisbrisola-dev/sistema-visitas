@@ -1,0 +1,4 @@
+DATABASE_URL="postgresql://postgres:Emballa202626@db.cyqeeoqwkueofnvxncyt.supabase.co:5432/postgres"
+DIRECT_URL="postgresql://postgres:Emballa202626@db.cyqeeoqwkueofnvxncyt.supabase.co:5432/postgres"
+JWT_SECRET="visitas_comerciais_2026"
+FRONTEND_URL="https://sistema-visitas-beta.vercel.app"

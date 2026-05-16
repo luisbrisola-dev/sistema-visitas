@@ -9,7 +9,12 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || 'troque-este-segredo-em-producao';
 const FRONTEND_URL = process.env.FRONTEND_URL || '*';
 
-app.use(cors({ origin: FRONTEND_URL === '*' ? true : FRONTEND_URL, credentials: true }));
+app.use(cors({
+  origin: FRONTEND_URL === '*' ? true : FRONTEND_URL,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '10mb' }));
 
 function signToken(user) {
