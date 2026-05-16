@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -21,8 +21,14 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString('pt-BR');
 }
 
-async function request(path, options = {}, usuario) {
+function limparSessao() {
+  localStorage.removeItem('visitas_user');
+  localStorage.removeItem('visitas_token');
+}
+
+async function request(path, options = {}) {
   const token = localStorage.getItem('visitas_token');
+
   const response = await fetch(`${API}${path}`, {
     ...options,
     headers: {
@@ -31,8 +37,17 @@ async function request(path, options = {}, usuario) {
       ...(options.headers || {})
     }
   });
+
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.erro || 'Erro na requisição.');
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      limparSessao();
+      window.dispatchEvent(new Event('visitas-auth-expirada'));
+    }
+    throw new Error(data.erro || 'Erro na requisição.');
+  }
+
   return data;
 }
 
@@ -48,8 +63,11 @@ function Login({ onLogin }) {
     setErro('');
     try {
       const data = await request('/login', { method: 'POST', body: JSON.stringify({ usuario, senha }) });
-      localStorage.setItem('visitas_user', JSON.stringify(data.usuario));
+      if (!data?.token || !data?.usuario) {
+        throw new Error('Resposta de login inválida.');
+      }
       localStorage.setItem('visitas_token', data.token);
+      localStorage.setItem('visitas_user', JSON.stringify(data.usuario));
       onLogin(data.usuario);
     } catch (err) {
       setErro(err.message);
@@ -305,9 +323,28 @@ function Select({ label, value, onChange, options }) {
 
 function App() {
   const [usuario, setUsuario] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('visitas_user')); } catch { return null; }
+    try {
+      const user = JSON.parse(localStorage.getItem('visitas_user'));
+      const token = localStorage.getItem('visitas_token');
+      return user && token ? user : null;
+    } catch {
+      return null;
+    }
   });
-  function logout() { localStorage.removeItem('visitas_user'); localStorage.removeItem('visitas_token'); setUsuario(null); }
+
+  function logout() {
+    limparSessao();
+    setUsuario(null);
+  }
+
+  useEffect(() => {
+    function handleAuthExpirada() {
+      setUsuario(null);
+    }
+    window.addEventListener('visitas-auth-expirada', handleAuthExpirada);
+    return () => window.removeEventListener('visitas-auth-expirada', handleAuthExpirada);
+  }, []);
+
   return usuario ? <Shell usuario={usuario} onLogout={logout} /> : <Login onLogin={setUsuario} />;
 }
 
