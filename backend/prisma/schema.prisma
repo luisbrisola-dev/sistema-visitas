@@ -8,21 +8,24 @@ datasource db {
 }
 
 model Usuario {
-  id           String    @id @default(cuid())
-  nome         String
-  usuario      String    @unique
-  senhaHash    String
-  perfil       String    @default("Vendedor")
-  email        String?
-  ativo        Boolean   @default(true)
-  criadoEm     DateTime  @default(now())
-  atualizadoEm DateTime  @updatedAt
-  clientes     Cliente[] @relation("CarteiraVendedor")
-  visitas      Visita[]  @relation("VisitasVendedor")
+  id             String          @id @default(cuid())
+  nome           String
+  usuario        String          @unique
+  senhaHash      String
+  perfil         String          @default("Vendedor")
+  email          String?
+  ativo          Boolean         @default(true)
+  criadoEm       DateTime        @default(now())
+  atualizadoEm   DateTime        @updatedAt
+  clientes       Cliente[]       @relation("CarteiraVendedor")
+  visitas        Visita[]        @relation("VisitasVendedor")
+  oportunidades  Oportunidade[]  @relation("OportunidadesVendedor")
+  atividades     Atividade[]     @relation("AtividadesResponsavel")
+  tarefas        Tarefa[]        @relation("TarefasResponsavel")
 }
 
 model Cliente {
-  id            String   @id @default(cuid())
+  id            String          @id @default(cuid())
   razaoSocial   String
   nomeFantasia  String
   cnpj          String?
@@ -34,20 +37,110 @@ model Cliente {
   cargoContato  String?
   telefone      String?
   email         String?
+  origemLead    String?
+  proximoFollowUp String?
   vendedorId    String
-  status        String   @default("Prospect")
-  potencial     String   @default("Médio")
+  status        String          @default("Prospect")
+  potencial     String          @default("Médio")
   observacoes   String?
-  criadoEm      DateTime @default(now())
-  atualizadoEm  DateTime @updatedAt
-  vendedor      Usuario  @relation("CarteiraVendedor", fields: [vendedorId], references: [id])
+  criadoEm      DateTime        @default(now())
+  atualizadoEm  DateTime        @updatedAt
+  vendedor      Usuario         @relation("CarteiraVendedor", fields: [vendedorId], references: [id])
   visitas       Visita[]
+  oportunidades Oportunidade[]
+  atividades    Atividade[]
+  tarefas       Tarefa[]
 
   @@index([vendedorId])
   @@index([status])
   @@index([cidade])
 }
 
+model Oportunidade {
+  id              String      @id @default(cuid())
+  clienteId       String
+  vendedorId      String
+  titulo          String
+  etapa           String      @default("Novo prospect")
+  status          String      @default("Aberta")
+  valorProposta   Decimal?    @db.Decimal(12, 2)
+  probabilidade   Int?        @default(0)
+  origem          String?
+  descricao       String?
+  proximaAcao     String?
+  proximaData     String?
+  previsaoFechamento DateTime?
+  temperatura     String      @default("Morno")
+  encerradaEm     DateTime?
+  motivoPerda     String?
+  criadoEm        DateTime    @default(now())
+  atualizadoEm    DateTime    @updatedAt
+  cliente         Cliente     @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  vendedor        Usuario     @relation("OportunidadesVendedor", fields: [vendedorId], references: [id])
+  atividades      Atividade[]
+  tarefas         Tarefa[]
+
+  @@index([clienteId])
+  @@index([vendedorId])
+  @@index([etapa])
+  @@index([status])
+}
+
+model Atividade {
+  id              String        @id @default(cuid())
+  clienteId       String
+  oportunidadeId  String?
+  responsavelId   String
+  tipo            String        @default("Ligação")
+  data            String
+  hora            String?
+  resumo          String?
+  contato         String?
+  proximaAcao     String?
+  proximaData     String?
+  etapaApos       String?
+  valorProposta   Decimal?      @db.Decimal(12, 2)
+  previsaoFechamento DateTime?
+  temperatura     String?
+  observacoes     String?
+  criadoEm        DateTime      @default(now())
+  atualizadoEm    DateTime      @updatedAt
+  cliente         Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  oportunidade    Oportunidade? @relation(fields: [oportunidadeId], references: [id], onDelete: Cascade)
+  responsavel     Usuario       @relation("AtividadesResponsavel", fields: [responsavelId], references: [id])
+
+  @@index([clienteId])
+  @@index([oportunidadeId])
+  @@index([responsavelId])
+  @@index([data])
+  @@index([tipo])
+}
+
+model Tarefa {
+  id              String        @id @default(cuid())
+  clienteId       String?
+  oportunidadeId  String?
+  responsavelId   String
+  titulo          String
+  descricao       String?
+  dataLimite      String?
+  prioridade      String        @default("Média")
+  status          String        @default("Pendente")
+  concluidaEm     DateTime?
+  criadoEm        DateTime      @default(now())
+  atualizadoEm    DateTime      @updatedAt
+  cliente         Cliente?      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  oportunidade    Oportunidade? @relation(fields: [oportunidadeId], references: [id], onDelete: Cascade)
+  responsavel     Usuario       @relation("TarefasResponsavel", fields: [responsavelId], references: [id])
+
+  @@index([clienteId])
+  @@index([oportunidadeId])
+  @@index([responsavelId])
+  @@index([status])
+  @@index([dataLimite])
+}
+
+// Mantido para não derrubar a estrutura antiga enquanto migramos a operação para Atividades/Oportunidades.
 model Visita {
   id                String    @id @default(cuid())
   clienteId         String
