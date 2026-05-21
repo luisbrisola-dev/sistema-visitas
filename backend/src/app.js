@@ -4,7 +4,6 @@ import cors from 'cors'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { Prisma } from '@prisma/client'
-import * as XLSX from 'xlsx'
 import { prisma } from './prisma.js'
 
 const app = express()
@@ -203,55 +202,6 @@ app.delete('/api/usuarios/:id', auth, requireAdmin, asyncHandler(async (req, res
   res.json({ sucesso: true })
 }))
 
-
-function valorCelula(row, nomes) {
-  for (const nome of nomes) {
-    if (row[nome] !== undefined && row[nome] !== null && String(row[nome]).trim() !== '') return String(row[nome]).trim()
-  }
-  return null
-}
-
-function excelDateParaISO(valor) {
-  if (!valor) return null
-  if (valor instanceof Date && !Number.isNaN(valor.getTime())) return valor.toISOString().slice(0, 10)
-  const texto = String(valor).trim()
-  if (!texto) return null
-  if (/^\d{4}-\d{2}-\d{2}/.test(texto)) return texto.slice(0, 10)
-  const m = texto.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
-  if (m) {
-    const dd = m[1].padStart(2, '0')
-    const mm = m[2].padStart(2, '0')
-    const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3]
-    return `${yyyy}-${mm}-${dd}`
-  }
-  return null
-}
-
-function linhasDaPlanilhaBase64(arquivoBase64) {
-  const entrada = String(arquivoBase64 || '').trim()
-  if (!entrada) return []
-
-  // Aceita tanto base64 puro quanto Data URL: data:...;base64,AAAA
-  const base64Limpo = entrada.includes(',') ? entrada.split(',').pop() : entrada
-  const buffer = Buffer.from(base64Limpo, 'base64')
-
-  const workbook = XLSX.read(buffer, {
-    type: 'buffer',
-    cellDates: true,
-    raw: false,
-    WTF: false
-  })
-
-  const primeiraAba = workbook.SheetNames[0]
-  if (!primeiraAba) return []
-
-  return XLSX.utils.sheet_to_json(workbook.Sheets[primeiraAba], {
-    defval: '',
-    raw: false,
-    blankrows: false
-  })
-}
-
 // CLIENTES
 app.get('/api/clientes', auth, asyncHandler(async (req, res) => {
   const termo = String(req.query.q || '').trim()
@@ -278,126 +228,6 @@ app.get('/api/clientes', auth, asyncHandler(async (req, res) => {
   res.json(clientes.map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' })))
 }))
 
-
-app.get('/api/clientes/modelo-importacao', auth, asyncHandler(async (req, res) => {
-  const colunas = [
-    'Data',
-    'Empresa',
-    'Nome do Contato',
-    'Telefone',
-    'E-mail',
-    'Segmento',
-    'Cidade',
-    'Origem do Lead',
-    'Status do Contato',
-    'Próximo Follow-up',
-    'Observações'
-  ]
-  const exemplo = [{
-    'Data': '2026-05-19',
-    'Empresa': 'ABC Indústria Ltda',
-    'Nome do Contato': 'Compras',
-    'Telefone': '(12) 99999-9999',
-    'E-mail': 'compras@abc.com.br',
-    'Segmento': 'Indústria',
-    'Cidade': 'São José dos Campos',
-    'Origem do Lead': 'Prospecção ativa',
-    'Status do Contato': 'Prospect',
-    'Próximo Follow-up': '2026-05-22',
-    'Observações': 'Modelo de importação. Apague esta linha antes de importar.'
-  }]
-  const sheet = XLSX.utils.json_to_sheet(exemplo, { header: colunas })
-  sheet['!cols'] = colunas.map(() => ({ wch: 24 }))
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Clientes')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-  res.setHeader('Content-Disposition', 'attachment; filename="modelo_importacao_clientes.xlsx"')
-  res.send(buffer)
-}))
-
-app.post('/api/clientes/importar', auth, asyncHandler(async (req, res) => {
-  const arquivoBase64 = req.body?.arquivoBase64
-  if (!arquivoBase64) return res.status(400).json({ erro: 'Arquivo não enviado.' })
-
-  const linhas = linhasDaPlanilhaBase64(arquivoBase64)
-  if (!linhas.length) return res.status(400).json({ erro: 'A planilha está vazia ou sem aba válida.' })
-
-  const vendedorPadrao = req.user.id
-  const resultado = { lidas: linhas.length, criados: 0, atualizados: 0, ignorados: 0, erros: [] }
-
-  for (let i = 0; i < linhas.length; i++) {
-    const row = linhas[i]
-    const linhaNumero = i + 2
-    try {
-      const empresa = valorCelula(row, ['Empresa', 'empresa', 'Nome Fantasia', 'Razão Social'])
-      if (!empresa) {
-        resultado.ignorados++
-        resultado.erros.push({ linha: linhaNumero, erro: 'Empresa não informada.' })
-        continue
-      }
-
-      const email = valorCelula(row, ['E-mail', 'Email', 'email'])
-      const telefone = valorCelula(row, ['Telefone', 'telefone', 'Celular'])
-      const cnpj = valorCelula(row, ['CNPJ', 'cnpj'])
-      const contato = valorCelula(row, ['Nome do Contato', 'Contato', 'contato'])
-      const segmento = valorCelula(row, ['Segmento', 'segmento'])
-      const cidade = valorCelula(row, ['Cidade', 'cidade'])
-      const origemLead = valorCelula(row, ['Origem do Lead', 'Origem', 'origemLead'])
-      const statusContato = valorCelula(row, ['Status do Contato', 'Status', 'status']) || 'Prospect'
-      const proximoFollowUp = excelDateParaISO(valorCelula(row, ['Próximo Follow-up', 'Proximo Follow-up', 'Próximo Follow up', 'proximoFollowUp']))
-      const dataEntrada = excelDateParaISO(valorCelula(row, ['Data', 'data']))
-      const observacoesPlanilha = valorCelula(row, ['Observações', 'Observacoes', 'observacoes'])
-      const observacoes = [
-        observacoesPlanilha,
-        dataEntrada ? `Data da planilha: ${dataEntrada}` : null
-      ].filter(Boolean).join('\n') || null
-
-      const data = {
-        razaoSocial: empresa,
-        nomeFantasia: empresa,
-        cnpj,
-        segmento,
-        cidade,
-        contato,
-        telefone,
-        email,
-        origemLead,
-        proximoFollowUp,
-        status: statusContato,
-        potencial: 'Médio',
-        observacoes,
-        vendedorId: vendedorPadrao
-      }
-
-      const existentes = await prisma.cliente.findMany({
-        where: {
-          OR: [
-            cnpj ? { cnpj } : null,
-            email ? { email } : null,
-            telefone ? { telefone } : null,
-            { nomeFantasia: { equals: empresa, mode: 'insensitive' } }
-          ].filter(Boolean)
-        },
-        take: 1
-      })
-
-      if (existentes[0]) {
-        await prisma.cliente.update({ where: { id: existentes[0].id }, data })
-        resultado.atualizados++
-      } else {
-        await prisma.cliente.create({ data })
-        resultado.criados++
-      }
-    } catch (err) {
-      resultado.ignorados++
-      resultado.erros.push({ linha: linhaNumero, erro: err.message || 'Erro ao importar linha.' })
-    }
-  }
-
-  res.json(resultado)
-}))
-
 app.get('/api/clientes/:id', auth, asyncHandler(async (req, res) => {
   const filtroOportunidades = isAdmin(req.user)
     ? {}
@@ -418,6 +248,12 @@ app.get('/api/clientes/:id', auth, asyncHandler(async (req, res) => {
           }
         },
         orderBy: { atualizadoEm: 'desc' }
+      },
+      atividades: {
+        where: isAdmin(req.user) ? {} : { responsavelId: req.user.id },
+        include: { responsavel: { select: { id: true, nome: true } } },
+        orderBy: [{ data: 'desc' }, { criadoEm: 'desc' }],
+        take: 20
       }
     }
   })
@@ -445,8 +281,6 @@ app.post('/api/clientes', auth, asyncHandler(async (req, res) => {
       cargoContato: p.cargoContato || null,
       telefone: p.telefone || null,
       email: p.email || null,
-      origemLead: p.origemLead || null,
-      proximoFollowUp: p.proximoFollowUp || null,
       vendedorId,
       status: p.status || 'Prospect',
       potencial: p.potencial || 'Médio',
@@ -459,7 +293,7 @@ app.post('/api/clientes', auth, asyncHandler(async (req, res) => {
 app.put('/api/clientes/:id', auth, asyncHandler(async (req, res) => {
   const cliente = await prisma.cliente.findUnique({ where: { id: req.params.id } })
   if (!cliente) return res.status(404).json({ erro: 'Cliente não encontrado.' })
-  const permitido = ['razaoSocial', 'nomeFantasia', 'cnpj', 'segmento', 'cidade', 'estado', 'endereco', 'contato', 'cargoContato', 'telefone', 'email', 'origemLead', 'proximoFollowUp', 'status', 'potencial', 'observacoes']
+  const permitido = ['razaoSocial', 'nomeFantasia', 'cnpj', 'segmento', 'cidade', 'estado', 'endereco', 'contato', 'cargoContato', 'telefone', 'email', 'status', 'potencial', 'observacoes']
   const data = {}
   for (const k of permitido) if (req.body[k] !== undefined) data[k] = req.body[k] || null
   if (isAdmin(req.user) && req.body.vendedorId) data.vendedorId = req.body.vendedorId

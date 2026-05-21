@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
@@ -66,36 +66,6 @@ async function request(path, options = {}) {
   return data
 }
 
-
-async function baixarArquivoAutenticado(path, nomeArquivo) {
-  const token = localStorage.getItem('visitas_token')
-  const res = await fetch(`${API}${path}`, {
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.erro || 'Erro ao baixar arquivo.')
-  }
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = nomeArquivo
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-function arquivoParaBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',').pop())
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
 function moeda(valor) {
   if (valor === null || valor === undefined || valor === '') return '-'
   return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -154,12 +124,12 @@ function Shell({ usuario, onLogout }) {
   const [page, setPage] = useState('dashboard')
   const [menuAberto, setMenuAberto] = useState(true)
   const menus = [
-    ['dashboard', 'Dashboard'],
-    ['kanban', 'Kanban Comercial'],
-    ['clientes', 'Clientes'],
-    ['atividades', 'Atividades'],
-    ['relatorios', 'Relatórios'],
-    ...(usuario.perfil === 'Administrador' ? [['usuarios', 'Usuários']] : [])
+    ['dashboard', 'Dashboard', 'D'],
+    ['kanban', 'Kanban Comercial', 'K'],
+    ['clientes', 'Clientes', 'C'],
+    ['atividades', 'Atividades', 'A'],
+    ['relatorios', 'Relatórios', 'R'],
+    ...(usuario.perfil === 'Administrador' ? [['usuarios', 'Usuários', 'U']] : [])
   ]
   return (
     <div className={`app-shell ${menuAberto ? '' : 'menu-collapsed'}`}>
@@ -167,8 +137,17 @@ function Shell({ usuario, onLogout }) {
         <button className="sidebar-toggle" type="button" onClick={() => setMenuAberto(!menuAberto)} title={menuAberto ? 'Ocultar menu' : 'Exibir menu'}>{menuAberto ? '‹' : '›'}</button>
         <div className="logo-row"><span className="logo">VC</span><strong>Controle Comercial</strong></div>
         <nav>
-          {menus.map(([id, label]) => (
-            <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}>{label}</button>
+          {menus.map(([id, label, icon]) => (
+            <button
+              key={id}
+              className={page === id ? 'active' : ''}
+              onClick={() => setPage(id)}
+              title={label}
+              aria-label={label}
+            >
+              <span className="nav-icon" aria-hidden="true">{icon}</span>
+              <span className="nav-label">{label}</span>
+            </button>
           ))}
         </nav>
         <div className="user-box">
@@ -529,100 +508,173 @@ function Clientes({ usuario }) {
   const [clientes, setClientes] = useState([])
   const [usuarios, setUsuarios] = useState([])
   const [q, setQ] = useState('')
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  const [filtros, setFiltros] = useState({ segmento: '', status: '', cidade: '', vendedor: '' })
+  const [pagina, setPagina] = useState(1)
+  const [porPagina, setPorPagina] = useState(20)
   const [modal, setModal] = useState(null)
   const [modalOp, setModalOp] = useState(null)
   const [modalDetalheCliente, setModalDetalheCliente] = useState(null)
   const [modalDetalheOp, setModalDetalheOp] = useState(null)
-  const [importando, setImportando] = useState(false)
-  const fileImportRef = useRef(null)
+
   useEffect(() => { carregar() }, [])
+
   async function carregar() {
-    const cls = await request(`/clientes${q ? `?q=${encodeURIComponent(q)}` : ''}`)
-    setClientes(cls)
+    const cls = await request('/clientes')
+    setClientes(Array.isArray(cls) ? cls : [])
     if (usuario.perfil === 'Administrador') setUsuarios(await request('/usuarios'))
   }
+
   async function excluir(id) {
     if (!confirm('Excluir cliente e histórico relacionado?')) return
     await request(`/clientes/${id}`, { method: 'DELETE' })
     carregar()
   }
 
-  async function baixarModeloClientes() {
-    try {
-      await baixarArquivoAutenticado('/clientes/modelo-importacao', 'modelo_importacao_clientes.xlsx')
-    } catch (err) {
-      alert(err.message)
-    }
+  function limparFiltros() {
+    setQ('')
+    setFiltros({ segmento: '', status: '', cidade: '', vendedor: '' })
+    setPagina(1)
   }
 
-  async function importarClientesArquivo(e) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    try {
-      setImportando(true)
-      const arquivoBase64 = await arquivoParaBase64(file)
-      const resultado = await request('/clientes/importar', { method: 'POST', body: JSON.stringify({ arquivoBase64 }) })
-      const erros = Array.isArray(resultado.erros) && resultado.erros.length
-        ? `\nLinhas com erro: ${resultado.erros.slice(0, 8).map((x) => `linha ${x.linha}: ${x.erro}`).join('; ')}`
-        : ''
-      alert(`Importação concluída.\nLinhas lidas: ${resultado.lidas || 0}\nCriados: ${resultado.criados || 0}\nAtualizados: ${resultado.atualizados || 0}\nIgnorados: ${resultado.ignorados || 0}${erros}`)
-      carregar()
-    } catch (err) {
-      alert(err.message)
-    } finally {
-      setImportando(false)
+  const opcoes = useMemo(() => {
+    const unico = (campo) => [...new Set(clientes.map((c) => c[campo]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)))
+    return {
+      segmentos: unico('segmento'),
+      status: unico('status'),
+      cidades: unico('cidade'),
+      vendedores: [...new Set(clientes.map((c) => c.vendedorNome).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)))
     }
-  }
+  }, [clientes])
+
+  const clientesFiltrados = useMemo(() => {
+    const termo = q.trim().toLowerCase()
+    return clientes.filter((c) => {
+      const texto = [c.nomeFantasia, c.razaoSocial, c.cnpj, c.cidade, c.estado, c.contato, c.telefone, c.email, c.segmento, c.vendedorNome]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      if (termo && !texto.includes(termo)) return false
+      if (filtros.segmento && c.segmento !== filtros.segmento) return false
+      if (filtros.status && c.status !== filtros.status) return false
+      if (filtros.cidade && c.cidade !== filtros.cidade) return false
+      if (filtros.vendedor && c.vendedorNome !== filtros.vendedor) return false
+      return true
+    })
+  }, [clientes, q, filtros])
+
+  const totalPaginas = Math.max(1, Math.ceil(clientesFiltrados.length / porPagina))
+  const paginaAtual = Math.min(pagina, totalPaginas)
+  const inicio = (paginaAtual - 1) * porPagina
+  const clientesPagina = clientesFiltrados.slice(inicio, inicio + porPagina)
+
+  useEffect(() => { setPagina(1) }, [q, filtros.segmento, filtros.status, filtros.cidade, filtros.vendedor, porPagina])
 
   return (
-    <section>
-      <PageHeader title="Clientes" subtitle="Cadastro principal da carteira comercial" action={
-        <div className="header-actions">
-          <button className="btn ghost" onClick={baixarModeloClientes}>Baixar modelo</button>
-          <button className="btn ghost" disabled={importando} onClick={() => fileImportRef.current?.click()}>{importando ? 'Importando...' : 'Importar Excel'}</button>
-          <button className="btn primary" onClick={() => setModal({})}>Novo cliente</button>
-          <input ref={fileImportRef} type="file" accept=".xlsx,.xls,.csv" className="hidden-file" onChange={importarClientesArquivo} />
+    <section className="clientes-page">
+      <PageHeader title="Clientes" subtitle="Cadastro principal da carteira comercial" action={<button className="btn primary" onClick={() => setModal({})}>Novo cliente</button>} />
+
+      <div className="clients-toolbar compact-card">
+        <div className="clients-search-row">
+          <input placeholder="Buscar por nome, CNPJ, cidade, contato, telefone, e-mail..." value={q} onChange={(e) => setQ(e.target.value)} />
+          <button className="btn ghost" type="button" onClick={() => setFiltrosAbertos(!filtrosAbertos)}>{filtrosAbertos ? 'Ocultar filtros' : 'Filtros'}</button>
+          <button className="btn ghost" type="button" onClick={limparFiltros}>Limpar</button>
         </div>
-      } />
-      <div className="toolbar"><input placeholder="Buscar por nome, CNPJ, cidade, contato..." value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && carregar()} /><button className="btn ghost" onClick={carregar}>Buscar</button></div>
-      <div className="table-wrap clients-list">
+
+        {filtrosAbertos && (
+          <div className="clients-filters-grid">
+            <label>Segmento
+              <select value={filtros.segmento} onChange={(e) => setFiltros({ ...filtros, segmento: e.target.value })}>
+                <option value="">Todos</option>
+                {opcoes.segmentos.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+            <label>Status
+              <select value={filtros.status} onChange={(e) => setFiltros({ ...filtros, status: e.target.value })}>
+                <option value="">Todos</option>
+                {opcoes.status.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+            <label>Cidade
+              <select value={filtros.cidade} onChange={(e) => setFiltros({ ...filtros, cidade: e.target.value })}>
+                <option value="">Todas</option>
+                {opcoes.cidades.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+            <label>Vendedor
+              <select value={filtros.vendedor} onChange={(e) => setFiltros({ ...filtros, vendedor: e.target.value })}>
+                <option value="">Todos</option>
+                {opcoes.vendedores.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="client-list-summary">
+        <span>{clientesFiltrados.length} cliente(s) encontrado(s)</span>
+        <label>Linhas por página
+          <select value={porPagina} onChange={(e) => setPorPagina(Number(e.target.value))}>
+            <option value={20}>20</option>
+            <option value={30}>30</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="table-wrap clients-list clients-list-compact">
         <table>
           <thead>
-            <tr><th>Nome fantasia</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Cidade/UF</th><th>Status</th><th>Vendedor</th><th></th></tr>
+            <tr>
+              <th>Nome fantasia</th>
+              <th>Contato</th>
+              <th>Telefone</th>
+              <th>E-mail</th>
+              <th>Segmento</th>
+              <th>Cidade/UF</th>
+              <th>Últ. atualização</th>
+              <th>Ação</th>
+            </tr>
           </thead>
           <tbody>
-            {clientes.map((c) => (
+            {clientesPagina.map((c) => (
               <tr key={c.id}>
-                <td><strong>{c.nomeFantasia}</strong><br /><small>{c.razaoSocial}</small></td>
+                <td>
+                  <button className="link-cell" type="button" onClick={() => setModalDetalheCliente(c.id)}>
+                    <strong>{c.nomeFantasia || c.razaoSocial || '-'}</strong>
+                    <small>{c.razaoSocial && c.razaoSocial !== c.nomeFantasia ? c.razaoSocial : c.cnpj || ''}</small>
+                  </button>
+                </td>
                 <td>{c.contato || '-'}</td>
                 <td>{c.telefone || '-'}</td>
-                <td>{c.email || '-'}</td>
+                <td className="truncate-cell" title={c.email || ''}>{c.email || '-'}</td>
+                <td>{c.segmento || '-'}</td>
                 <td>{c.cidade || '-'} / {c.estado || '-'}</td>
-                <td><span className="pill">{c.status}</span></td>
-                <td>{c.vendedorNome || '-'}</td>
-                <td className="td-actions">
-                  <AcoesMenu>{(close) => <>
-                    <button type="button" onClick={() => { close(); setModalDetalheCliente(c.id) }}>Detalhes</button>
-                    <button type="button" onClick={() => { close(); setModalOp({ clienteId: c.id }) }}>Nova oportunidade</button>
-                    <button type="button" onClick={() => { close(); setModal(c) }}>Editar</button>
-                    {usuario.perfil === 'Administrador' && <button type="button" className="danger-text" onClick={() => { close(); excluir(c.id) }}>Excluir</button>}
-                  </>}</AcoesMenu>
+                <td>{dataBR(String(c.atualizadoEm || c.updatedAt || '').slice(0, 10)) || '-'}</td>
+                <td className="td-actions single-action">
+                  <button className="icon-action" title="Nova oportunidade" type="button" onClick={() => setModalOp({ clienteId: c.id })}>+</button>
                 </td>
               </tr>
             ))}
+            {clientesPagina.length === 0 && <tr><td colSpan="8" className="empty-row">Nenhum cliente encontrado para os filtros aplicados.</td></tr>}
           </tbody>
         </table>
       </div>
+
+      <div className="pagination-row">
+        <button className="btn ghost small" type="button" disabled={paginaAtual <= 1} onClick={() => setPagina((p) => Math.max(1, p - 1))}>Anterior</button>
+        <span>Página {paginaAtual} de {totalPaginas}</span>
+        <button className="btn ghost small" type="button" disabled={paginaAtual >= totalPaginas} onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}>Próxima</button>
+      </div>
+
       {modal && <ClienteModal cliente={modal.id ? modal : null} usuarios={usuarios} usuario={usuario} onClose={() => setModal(null)} onSaved={() => { setModal(null); carregar() }} />}
       {modalOp && <OportunidadeModal clientes={clientes} clienteIdInicial={modalOp.clienteId} onClose={() => setModalOp(null)} onSaved={() => { setModalOp(null); carregar() }} />}
-      {modalDetalheCliente && <ClienteDetalhe clienteId={modalDetalheCliente} usuario={usuario} onClose={() => setModalDetalheCliente(null)} onNovaOportunidade={(clienteId) => { setModalDetalheCliente(null); setModalOp({ clienteId }) }} onAbrirOportunidade={(opId) => setModalDetalheOp(opId)} />}
+      {modalDetalheCliente && <ClienteDetalhe clienteId={modalDetalheCliente} usuario={usuario} onClose={() => setModalDetalheCliente(null)} onEditarCliente={(cliente) => { setModalDetalheCliente(null); setModal(cliente); }} onNovaOportunidade={(clienteId) => { setModalDetalheCliente(null); setModalOp({ clienteId }) }} onAbrirOportunidade={(opId) => setModalDetalheOp(opId)} />}
       {modalDetalheOp && <DetalheOportunidade opId={modalDetalheOp} usuario={usuario} onClose={() => setModalDetalheOp(null)} onSaved={carregar} />}
     </section>
   )
 }
 
-function ClienteDetalhe({ clienteId, usuario, onClose, onNovaOportunidade, onAbrirOportunidade }) {
+function ClienteDetalhe({ clienteId, usuario, onClose, onNovaOportunidade, onAbrirOportunidade, onEditarCliente }) {
   const [cliente, setCliente] = useState(null)
   const [erro, setErro] = useState('')
 
@@ -651,27 +703,40 @@ function ClienteDetalhe({ clienteId, usuario, onClose, onNovaOportunidade, onAbr
 
   return (
     <Modal title={cliente.nomeFantasia || cliente.razaoSocial} onClose={onClose} wide>
+      <div className="section-title-row compact-title-row">
+        <div>
+          <h2>Dados do cliente</h2>
+          <p className="muted">Clique em editar para atualizar os dados cadastrais quando necessário.</p>
+        </div>
+        <div className="inline-actions">
+          <button className="btn ghost" type="button" onClick={() => onEditarCliente(cliente)}>Editar cliente</button>
+          <button className="btn primary" type="button" onClick={() => onNovaOportunidade(cliente.id)}>Nova oportunidade</button>
+        </div>
+      </div>
+
       <div className="detail-head client-detail-head">
         <div><span>Razão social</span><strong>{cliente.razaoSocial || '-'}</strong></div>
+        <div><span>CNPJ</span><strong>{cliente.cnpj || '-'}</strong></div>
         <div><span>Contato</span><strong>{cliente.contato || '-'}</strong></div>
         <div><span>Telefone</span><strong>{cliente.telefone || '-'}</strong></div>
         <div><span>E-mail</span><strong>{cliente.email || '-'}</strong></div>
+        <div><span>Segmento</span><strong>{cliente.segmento || '-'}</strong></div>
         <div><span>Cidade/UF</span><strong>{cliente.cidade || '-'} / {cliente.estado || '-'}</strong></div>
         <div><span>Status</span><strong>{cliente.status || '-'}</strong></div>
+        <div><span>Última atualização</span><strong>{dataBR(String(cliente.atualizadoEm || cliente.updatedAt || '').slice(0, 10)) || '-'}</strong></div>
       </div>
 
-      <div className="section-title-row">
+      <div className="section-title-row compact-title-row">
         <div>
           <h2>Oportunidades abertas deste cliente</h2>
           <p className="muted">Vendedores visualizam somente as próprias oportunidades. Administrador visualiza todas.</p>
         </div>
-        <button className="btn primary" type="button" onClick={() => onNovaOportunidade(cliente.id)}>Nova oportunidade</button>
       </div>
 
-      <div className="table-wrap clean-table client-opps-table">
+      <div className="table-wrap clean-table client-opps-table compact-table">
         <table>
           <thead>
-            <tr><th>Oportunidade</th><th>Etapa</th><th>Valor</th><th>Previsão</th><th>Temperatura</th><th>Responsável</th><th>Última atualização</th><th></th></tr>
+            <tr><th>Oportunidade</th><th>Etapa</th><th>Valor</th><th>Previsão</th><th>Temperatura</th><th>Responsável</th><th>Última atualização</th><th>Acesso</th></tr>
           </thead>
           <tbody>
             {(cliente.oportunidades || []).map((op) => (
@@ -692,12 +757,29 @@ function ClienteDetalhe({ clienteId, usuario, onClose, onNovaOportunidade, onAbr
           </tbody>
         </table>
       </div>
+
+      <div className="section-title-row compact-title-row">
+        <div>
+          <h2>Atividades registradas</h2>
+          <p className="muted">Últimos contatos, ações e follow-ups do relacionamento comercial.</p>
+        </div>
+      </div>
+      <div className="activity-history-list compact-history">
+        {(cliente.atividades || []).slice(0, 12).map((a) => (
+          <div className="history-item" key={a.id}>
+            <strong>{a.tipo} • {dataBR(a.data)}{a.hora ? ` às ${a.hora}` : ''}</strong>
+            <p>{a.resumo || a.observacoes || 'Sem resumo.'}</p>
+            <small>{a.responsavel?.nome || a.responsavelNome || '-'} {a.etapaApos ? `• Etapa: ${a.etapaApos}` : ''}</small>
+          </div>
+        ))}
+        {(cliente.atividades || []).length === 0 && <div className="empty-row">Nenhuma atividade registrada para este cliente.</div>}
+      </div>
     </Modal>
   )
 }
 
 function ClienteModal({ cliente, usuarios, usuario, onClose, onSaved }) {
-  const [form, setForm] = useState(cliente || { razaoSocial: '', nomeFantasia: '', cnpj: '', segmento: '', cidade: '', estado: '', contato: '', telefone: '', email: '', origemLead: '', proximoFollowUp: '', status: 'Prospect', potencial: 'Médio', vendedorId: usuario.id, observacoes: '' })
+  const [form, setForm] = useState(cliente || { razaoSocial: '', nomeFantasia: '', cnpj: '', segmento: '', cidade: '', estado: '', contato: '', telefone: '', email: '', status: 'Prospect', potencial: 'Médio', vendedorId: usuario.id, observacoes: '' })
   async function salvar(e) {
     e.preventDefault()
     const method = cliente ? 'PUT' : 'POST'
@@ -717,8 +799,6 @@ function ClienteModal({ cliente, usuarios, usuario, onClose, onSaved }) {
         <label>Telefone<input value={form.telefone || ''} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></label>
         <label>E-mail<input value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
         <label>Status<select value={form.status || 'Prospect'} onChange={(e) => setForm({ ...form, status: e.target.value })}>{STATUS_CLIENTE.map((s) => <option key={s}>{s}</option>)}</select></label>
-        <label>Origem do lead<input value={form.origemLead || ''} onChange={(e) => setForm({ ...form, origemLead: e.target.value })} /></label>
-        <label>Próximo follow-up<input type="date" value={form.proximoFollowUp || ''} onChange={(e) => setForm({ ...form, proximoFollowUp: e.target.value })} /></label>
         <label>Potencial<select value={form.potencial || 'Médio'} onChange={(e) => setForm({ ...form, potencial: e.target.value })}>{POTENCIAIS.map((p) => <option key={p}>{p}</option>)}</select></label>
         {usuario.perfil === 'Administrador' && <label>Vendedor<select value={form.vendedorId || ''} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })}>{usuarios.filter((u) => u.ativo).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
         <label className="span2">Observações<textarea value={form.observacoes || ''} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} /></label>
@@ -813,7 +893,6 @@ function Relatorios({ usuario }) {
   const [erro, setErro] = useState('')
   const [loading, setLoading] = useState(false)
   const [filtros, setFiltros] = useState({ vendedorId: '', etapa: '', status: '', temperatura: '', dataInicio: '', dataFim: '', q: '' })
-  const [detalhe, setDetalhe] = useState(null)
 
   useEffect(() => { carregar() }, [])
 
@@ -894,34 +973,6 @@ function Relatorios({ usuario }) {
     return [k, Array.isArray(apiData) && apiData.length ? apiData : fallback]
   }))
 
-  function abrirDetalhe(tipo) {
-    if (!data) return
-    const mapas = {
-      abertas: { titulo: 'Oportunidades abertas', linhas: oportunidadesRelatorio.filter((o) => o.status !== 'Cliente ativo' && o.status !== 'Perdido'), colunas: ['Cliente', 'Oportunidade', 'Vendedor', 'Etapa', 'Temperatura', 'Valor'] },
-      encerradas: { titulo: 'Oportunidades encerradas', linhas: oportunidadesRelatorio.filter((o) => o.status === 'Cliente ativo' || o.status === 'Perdido'), colunas: ['Cliente', 'Oportunidade', 'Vendedor', 'Status', 'Valor', 'Última atualização'] },
-      valor: { titulo: 'Valor total negociado', linhas: oportunidadesRelatorio.filter((o) => numeroRelatorio(o.valorProposta) > 0), colunas: ['Cliente', 'Oportunidade', 'Vendedor', 'Etapa', 'Valor', 'Previsão'] },
-      conversao: { titulo: 'Taxa de conversão por vendedor', linhas: rankingRelatorio, colunas: ['Vendedor', 'Clientes ativos', 'Oportunidades abertas', 'Propostas enviadas', 'Valor em propostas', 'Taxa de conversão'] }
-    }
-    setDetalhe(mapas[tipo])
-  }
-
-  function celulaDetalhe(row, coluna) {
-    if (coluna === 'Cliente') return row.cliente?.nomeFantasia || row.nomeFantasia || '-'
-    if (coluna === 'Oportunidade') return row.titulo || '-'
-    if (coluna === 'Vendedor') return row.vendedor?.nome || row.vendedor || '-'
-    if (coluna === 'Etapa') return row.etapa || '-'
-    if (coluna === 'Status') return row.status || '-'
-    if (coluna === 'Temperatura') return row.temperatura || '-'
-    if (coluna === 'Valor' || coluna === 'Valor em propostas') return moeda(row.valorProposta ?? row.valorEmPropostas)
-    if (coluna === 'Previsão') return dataBR(row.previsaoFechamento)
-    if (coluna === 'Última atualização') return dataBR(row.atualizadoEm)
-    if (coluna === 'Clientes ativos') return row.clientesAtivos ?? 0
-    if (coluna === 'Oportunidades abertas') return row.oportunidadesAbertas ?? 0
-    if (coluna === 'Propostas enviadas') return row.propostasEnviadas ?? 0
-    if (coluna === 'Taxa de conversão') return percentualRelatorio(row.taxaConversao || 0)
-    return '-'
-  }
-
   return (
     <section>
       <PageHeader title="Relatórios" subtitle="Filtros, gráficos, ranking e exportações da operação comercial" />
@@ -940,10 +991,10 @@ function Relatorios({ usuario }) {
       {!data && !erro && <div className="loading">Carregando relatórios...</div>}
       {data && <>
         <div className="metric-grid reports-metrics">
-          <Metric title="Oportunidades abertas" value={cards.oportunidadesAbertas || 0} onClick={() => abrirDetalhe('abertas')} />
-          <Metric title="Oportunidades encerradas" value={cards.oportunidadesEncerradas || 0} onClick={() => abrirDetalhe('encerradas')} />
-          <Metric title="Valor total negociado" value={moeda(cards.valorTotalNegociado || 0)} onClick={() => abrirDetalhe('valor')} />
-          <Metric title="Taxa de conversão" value={percentualRelatorio(cards.taxaConversao || 0)} onClick={() => abrirDetalhe('conversao')} />
+          <Metric title="Oportunidades abertas" value={cards.oportunidadesAbertas || 0} />
+          <Metric title="Oportunidades encerradas" value={cards.oportunidadesEncerradas || 0} />
+          <Metric title="Valor total negociado" value={moeda(cards.valorTotalNegociado || 0)} />
+          <Metric title="Taxa de conversão" value={percentualRelatorio(cards.taxaConversao || 0)} />
         </div>
         <div className="export-row">
           <button className="btn ghost" onClick={exportarOportunidades}>Exportar oportunidades</button>
@@ -970,10 +1021,6 @@ function Relatorios({ usuario }) {
           <h2>Oportunidades filtradas</h2>
           <div className="table-wrap compact-table"><table><thead><tr><th>Cliente</th><th>Oportunidade</th><th>Vendedor</th><th>Etapa</th><th>Status</th><th>Temperatura</th><th>Valor</th><th>Previsão</th><th>Última atualização</th></tr></thead><tbody>{(data.oportunidades || []).map((o) => <tr key={o.id}><td>{o.cliente?.nomeFantasia || '-'}</td><td><strong>{o.titulo}</strong></td><td>{o.vendedor?.nome || '-'}</td><td>{o.etapa}</td><td>{o.status}</td><td>{o.temperatura || '-'}</td><td>{moeda(o.valorProposta)}</td><td>{dataBR(o.previsaoFechamento)}</td><td>{dataBR(o.atualizadoEm)}</td></tr>)}</tbody></table></div>
         </div>
-
-        {detalhe && <Modal title={detalhe.titulo} onClose={() => setDetalhe(null)} wide>
-          <div className="table-wrap compact-table detail-table"><table><thead><tr>{detalhe.colunas.map((c) => <th key={c}>{c}</th>)}</tr></thead><tbody>{detalhe.linhas.length ? detalhe.linhas.map((linha, idx) => <tr key={linha.id || linha.vendedorId || idx}>{detalhe.colunas.map((c) => <td key={c}>{celulaDetalhe(linha, c)}</td>)}</tr>) : <tr><td colSpan={detalhe.colunas.length}>Sem dados para os filtros aplicados.</td></tr>}</tbody></table></div>
-        </Modal>}
       </>}
     </section>
   )
