@@ -778,3 +778,45 @@ th { background: #f8fbff; font-size: 12px; text-transform: uppercase; color: var
     grid-template-columns: 1fr !important;
   }
 }
+
+.inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mass-owner-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mass-owner-box select {
+  height: 38px;
+  border: 1px solid var(--border, #d9e2f2);
+  border-radius: 12px;
+  padding: 0 10px;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.check-col {
+  width: 38px;
+  text-align: center;
+}
+
+.check-col input {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 1000px) {
+  .inline-actions,
+  .mass-owner-box {
+    justify-content: flex-start;
+  }
+}

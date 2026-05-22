@@ -306,6 +306,86 @@ app.delete('/api/clientes/:id', auth, requireAdmin, asyncHandler(async (req, res
   res.json({ sucesso: true })
 }))
 
+
+app.post('/api/clientes/importar', auth, asyncHandler(async (req, res) => {
+  const linhas = Array.isArray(req.body?.clientes) ? req.body.clientes : []
+  if (!linhas.length) return res.status(400).json({ erro: 'Nenhum cliente recebido para importação.' })
+
+  const usuarios = await prisma.usuario.findMany({ where: { ativo: true } })
+  const usuarioPorNome = new Map(usuarios.map((u) => [String(u.nome || '').trim().toLowerCase(), u.id]))
+  const usuarioPorUsuario = new Map(usuarios.map((u) => [String(u.usuario || '').trim().toLowerCase(), u.id]))
+  const resultado = { criados: 0, atualizados: 0, duplicados: 0, ignorados: 0, erros: [] }
+
+  for (const [idx, bruto] of linhas.entries()) {
+    try {
+      const nomeFantasia = String(bruto.nomeFantasia || bruto.empresa || bruto.nome || '').trim()
+      const razaoSocial = String(bruto.razaoSocial || bruto.razao || nomeFantasia || '').trim()
+      const cnpj = String(bruto.cnpj || '').trim()
+      const email = String(bruto.email || bruto['e-mail'] || '').trim().toLowerCase()
+      const telefone = String(bruto.telefone || bruto.celular || '').trim()
+      const contato = String(bruto.contato || bruto.nomeContato || bruto['nome do contato'] || '').trim()
+      if (!nomeFantasia && !razaoSocial) {
+        resultado.ignorados += 1
+        resultado.erros.push({ linha: idx + 2, motivo: 'Sem nome/empresa.' })
+        continue
+      }
+
+      let vendedorId = req.user.id
+      if (isAdmin(req.user)) {
+        const vendedorInformado = String(bruto.vendedor || bruto.responsavel || bruto.proprietario || '').trim().toLowerCase()
+        vendedorId = usuarioPorNome.get(vendedorInformado) || usuarioPorUsuario.get(vendedorInformado) || req.user.id
+      }
+
+      const filtros = []
+      if (cnpj) filtros.push({ cnpj })
+      if (email && nomeFantasia) filtros.push({ AND: [{ email }, { nomeFantasia }] })
+      if (telefone && nomeFantasia) filtros.push({ AND: [{ telefone }, { nomeFantasia }] })
+      if (!filtros.length && nomeFantasia) filtros.push({ nomeFantasia })
+
+      const existente = await prisma.cliente.findFirst({ where: { OR: filtros } })
+      const data = {
+        nomeFantasia: nomeFantasia || razaoSocial,
+        razaoSocial: razaoSocial || nomeFantasia,
+        cnpj: cnpj || null,
+        segmento: String(bruto.segmento || '').trim() || null,
+        cidade: String(bruto.cidade || '').trim() || null,
+        estado: String(bruto.estado || bruto.uf || '').trim() || null,
+        contato: contato || null,
+        telefone: telefone || null,
+        email: email || null,
+        status: String(bruto.status || bruto.statusContato || bruto['status do contato'] || 'Prospect').trim() || 'Prospect',
+        origemLead: String(bruto.origemLead || bruto['origem do lead'] || '').trim() || null,
+        observacoes: String(bruto.observacoes || bruto.obs || '').trim() || null,
+        vendedorId,
+        atualizadoEm: new Date()
+      }
+      if (existente) {
+        resultado.duplicados += 1
+        await prisma.cliente.update({ where: { id: existente.id }, data })
+        resultado.atualizados += 1
+      } else {
+        await prisma.cliente.create({ data })
+        resultado.criados += 1
+      }
+    } catch (e) {
+      resultado.ignorados += 1
+      resultado.erros.push({ linha: idx + 2, motivo: e.message })
+    }
+  }
+  res.json(resultado)
+}))
+
+app.patch('/api/clientes/proprietario-massa', auth, requireAdmin, asyncHandler(async (req, res) => {
+  const ids = Array.isArray(req.body?.clienteIds) ? req.body.clienteIds.filter(Boolean) : []
+  const vendedorId = req.body?.vendedorId
+  if (!ids.length) return res.status(400).json({ erro: 'Nenhum cliente selecionado.' })
+  if (!vendedorId) return res.status(400).json({ erro: 'Informe o novo proprietário.' })
+  const vendedor = await prisma.usuario.findUnique({ where: { id: vendedorId } })
+  if (!vendedor) return res.status(404).json({ erro: 'Vendedor não encontrado.' })
+  const result = await prisma.cliente.updateMany({ where: { id: { in: ids } }, data: { vendedorId, atualizadoEm: new Date() } })
+  res.json({ ok: true, atualizados: result.count })
+}))
+
 // OPORTUNIDADES / KANBAN
 app.get('/api/oportunidades', auth, asyncHandler(async (req, res) => {
   const etapa = String(req.query.etapa || '').trim()

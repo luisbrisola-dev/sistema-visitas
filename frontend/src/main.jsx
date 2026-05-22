@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
@@ -504,6 +504,83 @@ function DetalheOportunidade({ opId, usuario, onClose, onSaved }) {
 }
 
 
+
+function csvEscape(v) {
+  const text = String(v ?? '')
+  if (/[;\n\r"]/.test(text)) return '"' + text.replaceAll('"', '""') + '"'
+  return text
+}
+
+function baixarArquivo(nome, conteudo, tipo = 'text/csv;charset=utf-8;') {
+  const blob = new Blob(['\ufeff' + conteudo], { type: tipo })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nome
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function parseCsv(texto) {
+  const linhas = String(texto || '').replace(/^\ufeff/, '').split(/\r?\n/).filter((l) => l.trim())
+  if (!linhas.length) return []
+  const sep = linhas[0].includes(';') ? ';' : ','
+  const parseLinha = (linha) => {
+    const out = []
+    let atual = ''
+    let aspas = false
+    for (let i = 0; i < linha.length; i++) {
+      const ch = linha[i]
+      if (ch === '"' && linha[i + 1] === '"') { atual += '"'; i++; continue }
+      if (ch === '"') { aspas = !aspas; continue }
+      if (ch === sep && !aspas) { out.push(atual.trim()); atual = ''; continue }
+      atual += ch
+    }
+    out.push(atual.trim())
+    return out
+  }
+  const headers = parseLinha(linhas[0]).map((h) => h.trim().toLowerCase())
+  const mapa = {
+    'data': 'data',
+    'empresa': 'empresa',
+    'nome fantasia': 'nomeFantasia',
+    'razão social': 'razaoSocial',
+    'razao social': 'razaoSocial',
+    'cnpj': 'cnpj',
+    'nome do contato': 'nomeContato',
+    'contato': 'contato',
+    'telefone': 'telefone',
+    'e-mail': 'email',
+    'email': 'email',
+    'segmento': 'segmento',
+    'cidade': 'cidade',
+    'uf': 'estado',
+    'estado': 'estado',
+    'origem do lead': 'origemLead',
+    'origem lead': 'origemLead',
+    'status do contato': 'statusContato',
+    'status': 'status',
+    'próximo follow-up': 'proximoFollowUp',
+    'proximo follow-up': 'proximoFollowUp',
+    'observações': 'observacoes',
+    'observacoes': 'observacoes',
+    'vendedor': 'vendedor',
+    'responsável': 'responsavel',
+    'responsavel': 'responsavel',
+  }
+  return linhas.slice(1).map((linha) => {
+    const cols = parseLinha(linha)
+    const item = {}
+    headers.forEach((h, i) => {
+      const key = mapa[h] || h.replace(/\s+/g, '')
+      item[key] = cols[i] || ''
+    })
+    return item
+  }).filter((i) => i.nomeFantasia || i.empresa || i.razaoSocial || i.cnpj || i.email)
+}
+
 function Clientes({ usuario }) {
   const [clientes, setClientes] = useState([])
   const [usuarios, setUsuarios] = useState([])
@@ -516,6 +593,9 @@ function Clientes({ usuario }) {
   const [modalOp, setModalOp] = useState(null)
   const [modalDetalheCliente, setModalDetalheCliente] = useState(null)
   const [modalDetalheOp, setModalDetalheOp] = useState(null)
+  const [selecionados, setSelecionados] = useState([])
+  const [novoProprietario, setNovoProprietario] = useState('')
+  const fileImportRef = useRef(null)
 
   useEffect(() => { carregar() }, [])
 
@@ -528,6 +608,57 @@ function Clientes({ usuario }) {
   async function excluir(id) {
     if (!confirm('Excluir cliente e histórico relacionado?')) return
     await request(`/clientes/${id}`, { method: 'DELETE' })
+    carregar()
+  }
+
+
+
+  function baixarModeloClientes() {
+    const cabecalhos = ['Empresa', 'Razão Social', 'CNPJ', 'Nome do Contato', 'Telefone', 'E-mail', 'Segmento', 'Cidade', 'UF', 'Origem do Lead', 'Status do Contato', 'Próximo Follow-up', 'Observações', 'Vendedor']
+    const exemplo = ['Empresa Exemplo', 'Empresa Exemplo Ltda', '00.000.000/0001-00', 'Compras', '(12) 99999-9999', 'compras@exemplo.com.br', 'Indústria', 'São José dos Campos', 'SP', 'Prospecção', 'Prospect', '25/05/2026', 'Observação inicial', usuario.nome || usuario.usuario || '']
+    baixarArquivo('modelo_importacao_clientes.csv', [cabecalhos, exemplo].map((l) => l.map(csvEscape).join(';')).join('\n'))
+  }
+
+  function exportarClientes() {
+    const cabecalhos = ['Nome Fantasia', 'Razão Social', 'CNPJ', 'Contato', 'Telefone', 'E-mail', 'Segmento', 'Cidade', 'UF', 'Status', 'Origem do Lead', 'Vendedor', 'Última Atualização', 'Observações']
+    const linhas = clientesFiltrados.map((c) => [c.nomeFantasia, c.razaoSocial, c.cnpj, c.contato, c.telefone, c.email, c.segmento, c.cidade, c.estado, c.status, c.origemLead, c.vendedorNome, dataBR(String(c.atualizadoEm || '').slice(0, 10)), c.observacoes])
+    baixarArquivo('clientes_exportados.csv', [cabecalhos, ...linhas].map((l) => l.map(csvEscape).join(';')).join('\n'))
+  }
+
+  async function importarClientesArquivo(e) {
+    const arquivo = e.target.files?.[0]
+    e.target.value = ''
+    if (!arquivo) return
+    try {
+      const texto = await arquivo.text()
+      const clientesImportacao = parseCsv(texto)
+      if (!clientesImportacao.length) return alert('Arquivo sem clientes válidos para importação.')
+      const r = await request('/clientes/importar', { method: 'POST', body: JSON.stringify({ clientes: clientesImportacao }) })
+      alert(`Importação concluída. Criados: ${r.criados || 0}. Atualizados: ${r.atualizados || 0}. Duplicados tratados: ${r.duplicados || 0}. Ignorados: ${r.ignorados || 0}.`)
+      carregar()
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  function toggleSelecionado(id) {
+    setSelecionados((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
+
+  function toggleTodosPagina() {
+    const idsPagina = clientesPagina.map((c) => c.id)
+    const todos = idsPagina.every((id) => selecionados.includes(id))
+    setSelecionados((prev) => todos ? prev.filter((id) => !idsPagina.includes(id)) : [...new Set([...prev, ...idsPagina])])
+  }
+
+  async function alterarProprietarioMassa() {
+    if (usuario.perfil !== 'Administrador') return
+    if (!selecionados.length) return alert('Selecione pelo menos um cliente.')
+    if (!novoProprietario) return alert('Selecione o novo proprietário.')
+    await request('/clientes/proprietario-massa', { method: 'PATCH', body: JSON.stringify({ clienteIds: selecionados, vendedorId: novoProprietario }) })
+    alert('Proprietário atualizado nos clientes selecionados.')
+    setSelecionados([])
+    setNovoProprietario('')
     carregar()
   }
 
@@ -572,7 +703,15 @@ function Clientes({ usuario }) {
 
   return (
     <section className="clientes-page">
-      <PageHeader title="Clientes" subtitle="Cadastro principal da carteira comercial" action={<button className="btn primary" onClick={() => setModal({})}>Novo cliente</button>} />
+      <PageHeader title="Clientes" subtitle="Cadastro principal da carteira comercial" action={
+        <div className="inline-actions">
+          <button className="btn ghost" type="button" onClick={baixarModeloClientes}>Baixar modelo</button>
+          <button className="btn ghost" type="button" onClick={() => fileImportRef.current?.click()}>Importar</button>
+          <button className="btn ghost" type="button" onClick={exportarClientes}>Exportar</button>
+          <button className="btn primary" type="button" onClick={() => setModal({})}>Novo cliente</button>
+          <input ref={fileImportRef} type="file" accept=".csv,.txt" hidden onChange={importarClientesArquivo} />
+        </div>
+      } />
 
       <div className="clients-toolbar compact-card">
         <div className="clients-search-row">
@@ -613,6 +752,16 @@ function Clientes({ usuario }) {
 
       <div className="client-list-summary">
         <span>{clientesFiltrados.length} cliente(s) encontrado(s)</span>
+        {usuario.perfil === 'Administrador' && (
+          <div className="mass-owner-box">
+            <span>{selecionados.length} selecionado(s)</span>
+            <select value={novoProprietario} onChange={(e) => setNovoProprietario(e.target.value)}>
+              <option value="">Novo proprietário</option>
+              {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
+            <button className="btn ghost small" type="button" onClick={alterarProprietarioMassa}>Alterar em massa</button>
+          </div>
+        )}
         <label>Linhas por página
           <select value={porPagina} onChange={(e) => setPorPagina(Number(e.target.value))}>
             <option value={20}>20</option>
@@ -625,6 +774,7 @@ function Clientes({ usuario }) {
         <table>
           <thead>
             <tr>
+              {usuario.perfil === 'Administrador' && <th className="check-col"><input type="checkbox" checked={clientesPagina.length > 0 && clientesPagina.every((c) => selecionados.includes(c.id))} onChange={toggleTodosPagina} /></th>}
               <th>Nome fantasia</th>
               <th>Contato</th>
               <th>Telefone</th>
@@ -638,6 +788,7 @@ function Clientes({ usuario }) {
           <tbody>
             {clientesPagina.map((c) => (
               <tr key={c.id}>
+                {usuario.perfil === 'Administrador' && <td className="check-col"><input type="checkbox" checked={selecionados.includes(c.id)} onChange={() => toggleSelecionado(c.id)} /></td>}
                 <td>
                   <button className="link-cell" type="button" onClick={() => setModalDetalheCliente(c.id)}>
                     <strong>{c.nomeFantasia || c.razaoSocial || '-'}</strong>
@@ -655,7 +806,7 @@ function Clientes({ usuario }) {
                 </td>
               </tr>
             ))}
-            {clientesPagina.length === 0 && <tr><td colSpan="8" className="empty-row">Nenhum cliente encontrado para os filtros aplicados.</td></tr>}
+            {clientesPagina.length === 0 && <tr><td colSpan={usuario.perfil === 'Administrador' ? 9 : 8} className="empty-row">Nenhum cliente encontrado para os filtros aplicados.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -752,7 +903,7 @@ function ClienteDetalhe({ clienteId, usuario, onClose, onNovaOportunidade, onAbr
               </tr>
             ))}
             {(cliente.oportunidades || []).length === 0 && (
-              <tr><td colSpan="8" className="empty-row">Nenhuma oportunidade aberta visível para este usuário.</td></tr>
+              <tr><td colSpan={usuario.perfil === 'Administrador' ? 9 : 8} className="empty-row">Nenhuma oportunidade aberta visível para este usuário.</td></tr>
             )}
           </tbody>
         </table>
