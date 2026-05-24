@@ -709,6 +709,7 @@ function montarFiltroAtividadeRelatorio(user, query = {}) {
   return limpo.length ? { AND: limpo } : {}
 }
 
+
 app.get('/api/relatorios', auth, asyncHandler(async (req, res) => {
   const whereOp = montarFiltroOportunidadeRelatorio(req.user, req.query)
   const whereAt = montarFiltroAtividadeRelatorio(req.user, req.query)
@@ -725,7 +726,8 @@ app.get('/api/relatorios', auth, asyncHandler(async (req, res) => {
     { cnpj: { contains: q, mode: 'insensitive' } },
     { contato: { contains: q, mode: 'insensitive' } },
     { email: { contains: q, mode: 'insensitive' } },
-    { cidade: { contains: q, mode: 'insensitive' } }
+    { cidade: { contains: q, mode: 'insensitive' } },
+    { segmento: { contains: q, mode: 'insensitive' } }
   ] })
   if (dataInicio || dataFim) {
     const filtroData = {}
@@ -743,154 +745,378 @@ app.get('/api/relatorios', auth, asyncHandler(async (req, res) => {
       include: {
         cliente: true,
         vendedor: { select: { id: true, nome: true } },
-        atividades: { orderBy: { criadoEm: 'desc' }, take: 1, include: { responsavel: { select: { id: true, nome: true } } } }
+        atividades: {
+          orderBy: { criadoEm: 'desc' },
+          take: 5,
+          include: { responsavel: { select: { id: true, nome: true } } }
+        }
       },
       orderBy: [{ atualizadoEm: 'desc' }],
-      take: 1000
+      take: 1500
     }),
     prisma.atividade.findMany({
       where: whereAt,
-      include: { cliente: true, oportunidade: true, responsavel: { select: { id: true, nome: true } } },
+      include: {
+        cliente: true,
+        oportunidade: { include: { vendedor: { select: { id: true, nome: true } } } },
+        responsavel: { select: { id: true, nome: true } }
+      },
       orderBy: [{ data: 'desc' }, { criadoEm: 'desc' }],
-      take: 1000
+      take: 1500
     }),
     prisma.cliente.findMany({
       where: clienteAnd.length ? { AND: clienteAnd } : {},
-      include: { vendedor: { select: { id: true, nome: true } } },
-      orderBy: { nomeFantasia: 'asc' },
-      take: 1000
+      include: {
+        vendedor: { select: { id: true, nome: true } },
+        oportunidades: {
+          where: whereOportunidadesVisiveis(req.user),
+          include: { vendedor: { select: { id: true, nome: true } } },
+          orderBy: { atualizadoEm: 'desc' }
+        }
+      },
+      orderBy: { atualizadoEm: 'desc' },
+      take: 1500
     })
   ])
 
-  const opsSaida = oportunidades.map((o) => ({
-    ...o,
-    valorProposta: valorSaida(o.valorProposta),
-    ultimaAtividade: o.atividades?.[0] || null
-  }))
+  const hojeRef = new Date()
+  const diasDesde = (valor) => {
+    if (!valor) return 0
+    const d = new Date(valor)
+    if (Number.isNaN(d.getTime())) return 0
+    return Math.max(0, Math.floor((hojeRef.getTime() - d.getTime()) / 86400000))
+  }
+  const diasEntre = (inicio, fim) => {
+    if (!inicio || !fim) return 0
+    const a = new Date(inicio)
+    const b = new Date(fim)
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0
+    return Math.max(0, Math.floor((b.getTime() - a.getTime()) / 86400000))
+  }
+  const probTemperatura = (temperatura, etapa) => {
+    if (etapa === 'Cliente ativo') return 100
+    if (String(temperatura || '').toLowerCase() === 'quente') return 75
+    if (String(temperatura || '').toLowerCase() === 'morno') return 50
+    if (String(temperatura || '').toLowerCase() === 'frio') return 25
+    return 40
+  }
+  const media = (arr) => arr.length ? Number((arr.reduce((acc, n) => acc + Number(n || 0), 0) / arr.length).toFixed(1)) : 0
+
+  const opsSaida = oportunidades.map((o) => {
+    const valor = valorSaida(o.valorProposta) || 0
+    const prob = probTemperatura(o.temperatura, o.etapa)
+    const ultimaAtividade = o.atividades?.[0]?.data || o.atividades?.[0]?.criadoEm || null
+    return {
+      ...o,
+      valorProposta: valor,
+      forecastPonderado: Number(((valor * prob) / 100).toFixed(2)),
+      probabilidadeForecast: prob,
+      diasSemAtualizacao: diasDesde(o.atualizadoEm),
+      diasSemAtividade: ultimaAtividade ? diasDesde(ultimaAtividade) : diasDesde(o.atualizadoEm),
+      diasCiclo: o.encerradaEm ? diasEntre(o.criadoEm, o.encerradaEm) : diasEntre(o.criadoEm, hojeRef)
+    }
+  })
   const atvsSaida = atividades.map((a) => ({ ...a, valorProposta: valorSaida(a.valorProposta) }))
 
-  const porEtapa = ETAPAS.map((etapa) => ({
-    etapa,
-    total: opsSaida.filter((o) => o.etapa === etapa).length,
-    valor: opsSaida.filter((o) => o.etapa === etapa).reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
-  }))
-  const porTemperatura = ['Frio', 'Morno', 'Quente'].map((temperatura) => ({
-    temperatura,
-    total: opsSaida.filter((o) => o.temperatura === temperatura).length,
-    valor: opsSaida.filter((o) => o.temperatura === temperatura).reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
-  }))
-  const porTipoAtividade = TIPOS_ATIVIDADE.map((tipo) => ({ tipo, total: atvsSaida.filter((a) => a.tipo === tipo).length }))
   const etapasComValor = ETAPAS.slice(ETAPAS.indexOf('Proposta enviada')).filter((etapa) => etapa !== 'Perdido')
-  const oportunidadesValor = opsSaida.filter((o) => etapasComValor.includes(o.etapa))
+  const oportunidadesValor = opsSaida.filter((o) => etapasComValor.includes(o.etapa) && Number(o.valorProposta || 0) > 0)
+  const abertas = opsSaida.filter((o) => o.status === 'Aberta' && o.etapa !== 'Perdido' && o.etapa !== 'Cliente ativo')
+  const propostas = opsSaida.filter((o) => etapasComValor.includes(o.etapa))
+  const ganhas = opsSaida.filter((o) => o.etapa === 'Cliente ativo')
+  const perdidas = opsSaida.filter((o) => o.etapa === 'Perdido')
+  const encerradas = [...ganhas, ...perdidas]
+
+  const valorTotalPipeline = oportunidadesValor.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+  const forecastTotal = oportunidadesValor.reduce((acc, o) => acc + Number(o.forecastPonderado || 0), 0)
+
+  const funilAnalitico = ETAPAS.map((etapa) => {
+    const items = opsSaida.filter((o) => o.etapa === etapa)
+    const valorTotal = items.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+    return {
+      etapa,
+      total: items.length,
+      valorTotal,
+      valorMedio: items.length ? Number((valorTotal / items.length).toFixed(2)) : 0,
+      percentualFunil: opsSaida.length ? Number(((items.length / opsSaida.length) * 100).toFixed(1)) : 0,
+      diasMediosParado: media(items.map((o) => o.diasSemAtualizacao)),
+      ultimaAtividadeMediaDias: media(items.map((o) => o.diasSemAtividade)),
+      items
+    }
+  }).filter((e) => e.total > 0)
+
+  const forecastTemperatura = ['Frio', 'Morno', 'Quente'].map((temperatura) => {
+    const items = oportunidadesValor.filter((o) => o.temperatura === temperatura)
+    const valorTotal = items.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+    const probabilidade = probTemperatura(temperatura)
+    return {
+      temperatura,
+      total: items.length,
+      valorTotal,
+      probabilidade,
+      forecast: items.reduce((acc, o) => acc + Number(o.forecastPonderado || 0), 0),
+      items
+    }
+  }).filter((t) => t.total > 0)
+
+  const porTipoAtividade = TIPOS_ATIVIDADE.map((tipo) => {
+    const items = atvsSaida.filter((a) => a.tipo === tipo)
+    return { tipo, total: items.length, items }
+  }).filter((a) => a.total > 0)
+
+  const porVendedorAtividade = usuarios.map((u) => {
+    const items = atvsSaida.filter((a) => a.responsavelId === u.id || a.oportunidade?.vendedorId === u.id)
+    return { vendedor: u.nome, total: items.length, items }
+  }).filter((a) => a.total > 0).sort((a, b) => b.total - a.total)
 
   const clientesResumo = clientes.map((c) => {
     const opsCliente = opsSaida.filter((o) => o.clienteId === c.id)
-    const atvsCliente = atvsSaida.filter((a) => a.clienteId === c.id).slice(0, 5)
+    const abertasCliente = opsCliente.filter((o) => o.status === 'Aberta' && o.etapa !== 'Perdido' && o.etapa !== 'Cliente ativo')
     const valorTotal = opsCliente.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+    const followupVencido = opsCliente.some((o) => o.proximaData && new Date(o.proximaData) < hojeRef && o.status === 'Aberta')
     return {
       ...c,
       vendedorNome: c.vendedor?.nome || '',
-      oportunidadesAbertas: opsCliente.filter((o) => o.status === 'Aberta').length,
-      oportunidadesEncerradas: opsCliente.filter((o) => o.status === 'Encerrada').length,
-      ultimasAtividades: atvsCliente,
+      oportunidadesAbertas: abertasCliente.length,
+      oportunidadesEncerradas: opsCliente.filter((o) => o.status === 'Encerrada' || o.etapa === 'Cliente ativo' || o.etapa === 'Perdido').length,
       valorTotalNegociado: valorTotal,
       statusAtual: c.status,
-      vendedoresResponsaveis: [...new Set(opsCliente.map((o) => o.vendedor?.nome).filter(Boolean))],
-      vendedorResponsavelAtual: [...new Set(opsCliente.map((o) => o.vendedor?.nome).filter(Boolean))].join(', ')
+      vendedorResponsavelAtual: c.vendedor?.nome || '',
+      followupVencido
     }
+  })
+
+  const clientesComOportunidadeAberta = clientesResumo.filter((c) => c.oportunidadesAbertas > 0)
+  const clientesSemOportunidadeAberta = clientesResumo.filter((c) => !c.oportunidadesAbertas)
+  const clientesAtivos = clientesResumo.filter((c) => c.status === 'Cliente ativo' || c.oportunidades?.some((o) => o.etapa === 'Cliente ativo'))
+  const clientesPerdidosInativos = clientesResumo.filter((c) => ['Perdido', 'Inativo'].includes(c.status))
+  const clientesNovosPeriodo = clientesResumo.filter((c) => {
+    if (!dataInicio && !dataFim) return diasDesde(c.criadoEm) <= 30
+    const criado = new Date(c.criadoEm)
+    return (!dataInicio || criado >= dataInicio) && (!dataFim || criado <= dataFim)
+  })
+  const clientesFollowupVencido = clientesResumo.filter((c) => c.followupVencido)
+
+  const segmentos = {}
+  clientesResumo.forEach((c) => {
+    const key = c.segmento || 'Sem segmento'
+    segmentos[key] = (segmentos[key] || 0) + 1
   })
 
   const ranking = usuarios.map((u) => {
     const ops = opsSaida.filter((o) => o.vendedorId === u.id)
     const atividadesVend = atvsSaida.filter((a) => a.responsavelId === u.id || a.oportunidade?.vendedorId === u.id)
-    const ganhas = ops.filter((o) => o.etapa === 'Cliente ativo').length
-    const perdidas = ops.filter((o) => o.etapa === 'Perdido').length
-    const encerradas = ganhas + perdidas
+    const ganhasVend = ops.filter((o) => o.etapa === 'Cliente ativo').length
+    const perdidasVend = ops.filter((o) => o.etapa === 'Perdido').length
+    const encerradasVend = ganhasVend + perdidasVend
+    const propostasVend = ops.filter((o) => etapasComValor.includes(o.etapa))
+    const valorEmPropostas = propostasVend.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
     return {
       vendedorId: u.id,
       vendedor: u.nome,
-      clientesAtivos: new Set(ops.filter((o) => o.etapa === 'Cliente ativo').map((o) => o.clienteId)).size,
-      oportunidadesAbertas: ops.filter((o) => o.status === 'Aberta').length,
-      propostasEnviadas: ops.filter((o) => etapasComValor.includes(o.etapa)).length,
-      valorEmPropostas: ops.filter((o) => etapasComValor.includes(o.etapa)).reduce((acc, o) => acc + Number(o.valorProposta || 0), 0),
+      clientesAtivos: clientesAtivos.filter((c) => c.vendedorId === u.id).length,
+      oportunidadesAbertas: ops.filter((o) => o.status === 'Aberta' && o.etapa !== 'Cliente ativo' && o.etapa !== 'Perdido').length,
+      propostasEnviadas: propostasVend.length,
+      valorEmPropostas,
+      forecastPonderado: propostasVend.reduce((acc, o) => acc + Number(o.forecastPonderado || 0), 0),
       atividadesRealizadas: atividadesVend.length,
-      taxaConversao: encerradas ? Number(((ganhas / encerradas) * 100).toFixed(1)) : 0
+      taxaConversao: encerradasVend ? Number(((ganhasVend / encerradasVend) * 100).toFixed(1)) : 0,
+      ticketMedio: propostasVend.length ? Number((valorEmPropostas / propostasVend.length).toFixed(2)) : 0
     }
   }).sort((a, b) => b.valorEmPropostas - a.valorEmPropostas)
+
+  const propostasSemAtividade = propostas.filter((o) => o.diasSemAtividade >= 7 && o.status === 'Aberta')
+  const previsaoVencida = propostas.filter((o) => o.previsaoFechamento && new Date(o.previsaoFechamento) < hojeRef && o.status === 'Aberta')
+  const quentesSemProximaAcao = propostas.filter((o) => o.temperatura === 'Quente' && !o.proximaAcao && o.status === 'Aberta')
+  const negociacaoSemAtualizacao = opsSaida.filter((o) => ['Em negociação', 'Aguardando retorno'].includes(o.etapa) && o.diasSemAtualizacao >= 7)
+  const clientesSemContatoRecente = clientesComOportunidadeAberta.filter((c) => {
+    const atividadesCliente = atvsSaida.filter((a) => a.clienteId === c.id)
+    if (!atividadesCliente.length) return true
+    return Math.min(...atividadesCliente.map((a) => diasDesde(a.data || a.criadoEm))) >= 15
+  })
 
   res.json({
     filtros: {
       vendedores: usuarios,
       etapas: ETAPAS,
-      status: ['Aberta', 'Encerrada', 'Cliente ativo', 'Perdido'],
+      status: ['Aberta', 'Encerrada'],
       temperaturas: ['Frio', 'Morno', 'Quente']
     },
     cards: {
-      oportunidadesAbertas: opsSaida.filter((o) => o.status === 'Aberta').length,
-      oportunidadesEncerradas: opsSaida.filter((o) => o.status === 'Encerrada').length,
-      atividades: atvsSaida.length,
-      clientes: clientesResumo.length,
-      valorTotalNegociado: oportunidadesValor.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0),
-      taxaConversao: (() => { const ganhas = opsSaida.filter((o) => o.etapa === 'Cliente ativo').length; const perdidas = opsSaida.filter((o) => o.etapa === 'Perdido').length; return ganhas + perdidas ? Number(((ganhas / (ganhas + perdidas)) * 100).toFixed(1)) : 0 })()
+      receitaNegociacao: valorTotalPipeline,
+      forecastPonderado: forecastTotal,
+      propostasEnviadas: propostas.length,
+      oportunidadesAbertas: abertas.length,
+      taxaConversao: encerradas.length ? Number(((ganhas.length / encerradas.length) * 100).toFixed(1)) : 0,
+      ticketMedioProposta: oportunidadesValor.length ? Number((valorTotalPipeline / oportunidadesValor.length).toFixed(2)) : 0,
+      cicloMedioDias: media(encerradas.map((o) => o.diasCiclo)),
+      atividadesPeriodo: atvsSaida.length
     },
-    opcoes: { vendedores: usuarios },
-    graficos: {
-      porEtapa,
-      porTemperatura,
-      porTipoAtividade,
-      oportunidadesPorEtapa: porEtapa.map((e) => ({ nome: e.etapa, total: e.total })),
-      valorPorEtapa: porEtapa.map((e) => ({ nome: e.etapa, valor: e.valor })),
-      atividadesPorVendedor: ranking.map((r) => ({ nome: r.vendedor, total: r.atividadesRealizadas })),
-      atividadesPorTipo: porTipoAtividade.map((e) => ({ nome: e.tipo, total: e.total })),
-      temperaturaOportunidades: porTemperatura.map((e) => ({ nome: e.temperatura, total: e.total })),
-      conversaoPorVendedor: ranking.map((r) => ({ nome: r.vendedor, valor: r.taxaConversao }))
-    },
+    funilAnalitico,
+    forecastTemperatura,
     ranking,
+    criticas: [
+      { key: 'propostasSemAtividade', title: 'Propostas sem atividade', total: propostasSemAtividade.length, descricao: 'Sem atividade há 7 dias ou mais', severidade: 'warning', type: 'oportunidades', items: propostasSemAtividade },
+      { key: 'previsaoVencida', title: 'Previsões vencidas', total: previsaoVencida.length, descricao: 'Previsão de fechamento anterior a hoje', severidade: 'danger', type: 'oportunidades', items: previsaoVencida },
+      { key: 'quentesSemProximaAcao', title: 'Quentes sem próxima ação', total: quentesSemProximaAcao.length, descricao: 'Oportunidades quentes sem plano de avanço', severidade: 'danger', type: 'oportunidades', items: quentesSemProximaAcao },
+      { key: 'negociacaoSemAtualizacao', title: 'Negociação parada', total: negociacaoSemAtualizacao.length, descricao: 'Em negociação/retorno sem atualização há 7 dias', severidade: 'warning', type: 'oportunidades', items: negociacaoSemAtualizacao },
+      { key: 'clientesSemContatoRecente', title: 'Clientes sem contato recente', total: clientesSemContatoRecente.length, descricao: 'Clientes com oportunidade aberta sem contato recente', severidade: 'info', type: 'clientes', items: clientesSemContatoRecente }
+    ],
+    clientesAnalise: {
+      total: clientesResumo.length,
+      comOportunidadeAberta: clientesComOportunidadeAberta.length,
+      semOportunidadeAberta: clientesSemOportunidadeAberta.length,
+      ativos: clientesAtivos.length,
+      perdidosInativos: clientesPerdidosInativos.length,
+      novosPeriodo: clientesNovosPeriodo.length,
+      followupVencido: clientesFollowupVencido.length,
+      porSegmento: Object.entries(segmentos).map(([segmento, total]) => ({ segmento, total })).sort((a, b) => b.total - a.total)
+    },
+    atividadesAnalise: {
+      porTipo: porTipoAtividade,
+      porVendedor: porVendedorAtividade,
+      ultimas: atvsSaida.slice(0, 20)
+    },
+    detalhes: {
+      receitaNegociacao: oportunidadesValor,
+      forecastPonderado: oportunidadesValor,
+      propostasEnviadas: propostas,
+      oportunidadesAbertas: abertas,
+      conversao: encerradas,
+      cicloMedio: encerradas,
+      clientesComOportunidadeAberta,
+      clientesSemOportunidadeAberta,
+      clientesAtivos,
+      clientesPerdidosInativos,
+      clientesNovosPeriodo,
+      clientesFollowupVencido
+    },
+    graficos: {
+      funilAnalitico,
+      forecastTemperatura,
+      atividadesPorTipo: porTipoAtividade,
+      atividadesPorVendedor: porVendedorAtividade
+    },
     oportunidades: opsSaida,
     atividades: atvsSaida,
     clientes: clientesResumo
   })
 }))
 
+
 // DASHBOARD
 app.get('/api/dashboard', auth, asyncHandler(async (req, res) => {
-  const whereCli = {}
   const whereOp = whereOportunidadesVisiveis(req.user)
   const whereAt = whereAtividadesVisiveis(req.user)
-  const [clientes, oportunidades, atividades, tarefas] = await Promise.all([
-    prisma.cliente.findMany({ where: whereCli, include: { vendedor: { select: { id: true, nome: true } } }, orderBy: { nomeFantasia: 'asc' }, take: 300 }),
-    prisma.oportunidade.findMany({ where: whereOp, include: { cliente: true, vendedor: { select: { id: true, nome: true } } }, orderBy: { atualizadoEm: 'desc' }, take: 300 }),
-    prisma.atividade.findMany({ where: whereAt, orderBy: { criadoEm: 'desc' }, take: 8, include: { cliente: true, oportunidade: true, responsavel: { select: { id: true, nome: true } } } }),
-    prisma.tarefa.findMany({ where: { ...(isAdmin(req.user) ? {} : { responsavelId: req.user.id }), status: { not: 'Concluída' } }, orderBy: { dataLimite: 'asc' }, take: 8, include: { cliente: true } })
+  const hojeISO = new Date().toISOString().slice(0, 10)
+  const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const seteDiasAtrasISO = seteDiasAtras.toISOString().slice(0, 10)
+  const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+
+  const [clientes, oportunidadesRaw, atividadesRecentes, atividadesPeriodo, usuarios] = await Promise.all([
+    prisma.cliente.findMany({
+      include: { vendedor: { select: { id: true, nome: true } }, oportunidades: { where: whereOp, select: { id: true, status: true, etapa: true } } },
+      orderBy: { atualizadoEm: 'desc' },
+      take: 1000
+    }),
+    prisma.oportunidade.findMany({
+      where: whereOp,
+      include: { cliente: true, vendedor: { select: { id: true, nome: true } } },
+      orderBy: [{ atualizadoEm: 'desc' }],
+      take: 1000
+    }),
+    prisma.atividade.findMany({
+      where: whereAt,
+      orderBy: { criadoEm: 'desc' },
+      take: 10,
+      include: { cliente: true, oportunidade: true, responsavel: { select: { id: true, nome: true } } }
+    }),
+    prisma.atividade.findMany({
+      where: { AND: [whereAt, { data: { gte: seteDiasAtrasISO } }] },
+      orderBy: { criadoEm: 'desc' },
+      take: 200,
+      include: { cliente: true, oportunidade: true, responsavel: { select: { id: true, nome: true } } }
+    }),
+    prisma.usuario.findMany({ where: isAdmin(req.user) ? { ativo: true } : { id: req.user.id }, select: { id: true, nome: true } })
   ])
-  const porEtapa = ETAPAS.map((etapa) => ({ etapa, total: oportunidades.filter((o) => o.etapa === etapa).length }))
+
+  const oportunidades = oportunidadesRaw.map((o) => ({ ...o, valorProposta: valorSaida(o.valorProposta) }))
+  const abertas = oportunidades.filter((o) => o.status === 'Aberta' && o.etapa !== 'Perdido')
+  const propostasEnviadas = oportunidades.filter((o) => o.etapa === 'Proposta enviada')
   const etapasComValorDashboard = ETAPAS.slice(ETAPAS.indexOf('Proposta enviada')).filter((etapa) => etapa !== 'Perdido')
-  const propostasLista = oportunidades
-    .filter((o) => etapasComValorDashboard.includes(o.etapa))
-    .map((o) => ({ ...o, valorProposta: valorSaida(o.valorProposta) }))
-  const oportunidadesAbertasLista = oportunidades
-    .filter((o) => o.status === 'Aberta')
-    .map((o) => ({ ...o, valorProposta: valorSaida(o.valorProposta) }))
-  const oportunidadesPorEtapa = Object.fromEntries(ETAPAS.map((etapa) => [etapa, oportunidades
-    .filter((o) => o.etapa === etapa)
-    .map((o) => ({ ...o, valorProposta: valorSaida(o.valorProposta) }))
-  ]))
-  const valorPropostas = propostasLista.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+  const valorNegociacaoLista = oportunidades.filter((o) => etapasComValorDashboard.includes(o.etapa))
+  const valorNegociacao = valorNegociacaoLista.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+  const previsaoFechamentoLista = valorNegociacaoLista.filter((o) => o.previsaoFechamento).sort((a, b) => new Date(a.previsaoFechamento) - new Date(b.previsaoFechamento))
+  const previsaoFechamento = previsaoFechamentoLista.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0)
+
+  const clientesAtivos = clientes.filter((c) => c.status === 'Cliente ativo' || (c.oportunidades || []).some((o) => o.etapa === 'Cliente ativo'))
+  const clientesComOportunidadeAberta = clientes.filter((c) => (c.oportunidades || []).some((o) => o.status === 'Aberta'))
+  const clientesSemOportunidadeAberta = clientes.filter((c) => !(c.oportunidades || []).some((o) => o.status === 'Aberta'))
+  const clientesNovosNoMes = clientes.filter((c) => new Date(c.criadoEm) >= trintaDiasAtras)
+
+  const funilExecutivoBase = ETAPAS.map((etapa) => {
+    const items = oportunidades.filter((o) => o.etapa === etapa)
+    return { etapa, total: items.length, valor: items.reduce((acc, o) => acc + Number(o.valorProposta || 0), 0), items }
+  })
+  const maxEtapa = Math.max(1, ...funilExecutivoBase.map((e) => e.total))
+  const funilExecutivo = funilExecutivoBase.map((e) => ({ ...e, percentual: Math.round((e.total / maxEtapa) * 100) }))
+
+  const semMovimentacao = abertas.filter((o) => new Date(o.atualizadoEm) < seteDiasAtras)
+  const propostasSemRetorno = propostasEnviadas.filter((o) => new Date(o.atualizadoEm) < seteDiasAtras)
+  const followupsVencidos = abertas.filter((o) => o.proximaData && String(o.proximaData).slice(0, 10) < hojeISO)
+
+  const rankingVendedores = usuarios.map((u) => {
+    const ops = oportunidades.filter((o) => o.vendedorId === u.id)
+    const atvs = atividadesPeriodo.filter((a) => a.responsavelId === u.id || a.oportunidade?.vendedorId === u.id)
+    const ganhas = ops.filter((o) => o.etapa === 'Cliente ativo').length
+    const perdidas = ops.filter((o) => o.etapa === 'Perdido').length
+    const encerradas = ganhas + perdidas
+    return {
+      id: u.id,
+      nome: u.nome,
+      oportunidadesAbertas: ops.filter((o) => o.status === 'Aberta').length,
+      propostasEnviadas: ops.filter((o) => o.etapa === 'Proposta enviada').length,
+      valorPropostas: ops.filter((o) => etapasComValorDashboard.includes(o.etapa)).reduce((acc, o) => acc + Number(o.valorProposta || 0), 0),
+      atividadesRealizadas: atvs.length,
+      taxaConversao: encerradas ? Math.round((ganhas / encerradas) * 100) : 0
+    }
+  }).sort((a, b) => b.valorPropostas - a.valorPropostas)
+
   res.json({
     cards: {
-      clientes: clientes.length,
-      oportunidadesAbertas: oportunidadesAbertasLista.length,
-      propostasEnviadas: propostasLista.length,
-      valorPropostas,
-      tarefasPendentes: tarefas.length
+      oportunidadesAbertas: abertas.length,
+      valorNegociacao,
+      propostasEnviadas: propostasEnviadas.length,
+      previsaoFechamento,
+      clientesAtivos: clientesAtivos.length,
+      atividades7d: atividadesPeriodo.length
     },
-    clientesLista: clientes.map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' })),
-    oportunidadesAbertasLista,
-    propostasLista,
-    oportunidadesPorEtapa,
-    porEtapa,
-    atividades,
-    tarefas
+    cardDetails: {
+      oportunidadesAbertas: abertas.slice(0, 80),
+      valorNegociacao: valorNegociacaoLista.slice(0, 80),
+      propostasEnviadas: propostasEnviadas.slice(0, 80),
+      previsaoFechamento: previsaoFechamentoLista.slice(0, 80),
+      clientesAtivos: clientesAtivos.slice(0, 80).map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' })),
+      atividades7d: atividadesPeriodo.slice(0, 80),
+      clientesComOportunidadeAberta: clientesComOportunidadeAberta.slice(0, 80).map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' })),
+      clientesSemOportunidadeAberta: clientesSemOportunidadeAberta.slice(0, 80).map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' })),
+      clientesNovosNoMes: clientesNovosNoMes.slice(0, 80).map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' }))
+    },
+    clientesResumo: {
+      total: clientes.length,
+      comOportunidadeAberta: clientesComOportunidadeAberta.length,
+      semOportunidadeAberta: clientesSemOportunidadeAberta.length,
+      ativos: clientesAtivos.length,
+      novosNoMes: clientesNovosNoMes.length
+    },
+    funilExecutivo,
+    alertas: [
+      { key: 'semMovimentacao', title: 'Sem movimentação', value: semMovimentacao.length, descricao: 'Oportunidades há mais de 7 dias sem atualização', severidade: semMovimentacao.length ? 'warning' : 'ok', type: 'oportunidades', items: semMovimentacao.slice(0, 80) },
+      { key: 'followupsVencidos', title: 'Follow-ups vencidos', value: followupsVencidos.length, descricao: 'Próximas ações com data vencida', severidade: followupsVencidos.length ? 'danger' : 'ok', type: 'oportunidades', items: followupsVencidos.slice(0, 80) },
+      { key: 'propostasSemRetorno', title: 'Propostas sem retorno', value: propostasSemRetorno.length, descricao: 'Propostas paradas há mais de 7 dias', severidade: propostasSemRetorno.length ? 'warning' : 'ok', type: 'oportunidades', items: propostasSemRetorno.slice(0, 80) },
+      { key: 'clientesSemOportunidade', title: 'Clientes sem oportunidade', value: clientesSemOportunidadeAberta.length, descricao: 'Base sem card comercial aberto', severidade: clientesSemOportunidadeAberta.length ? 'neutral' : 'ok', type: 'clientes', items: clientesSemOportunidadeAberta.slice(0, 80).map((c) => ({ ...c, vendedorNome: c.vendedor?.nome || '' })) }
+    ],
+    rankingVendedores,
+    atividades: atividadesRecentes
   })
 }))
 

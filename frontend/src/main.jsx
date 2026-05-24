@@ -192,42 +192,133 @@ function Dashboard() {
   if (!data) return <div className="loading">Carregando dashboard...</div>
 
   const cards = [
-    { key: 'clientes', title: 'Clientes', value: data.cards.clientes, items: data.clientesLista || [], type: 'clientes' },
-    { key: 'abertas', title: 'Oportunidades abertas', value: data.cards.oportunidadesAbertas, items: data.oportunidadesAbertasLista || [], type: 'oportunidades' },
-    { key: 'propostas', title: 'Propostas enviadas', value: data.cards.propostasEnviadas, items: data.propostasLista || [], type: 'propostas' },
-    { key: 'valor', title: 'Valor em propostas', value: moeda(data.cards.valorPropostas), items: data.propostasLista || [], type: 'propostas' }
+    { key: 'abertas', title: 'Oportunidades abertas', value: data.cards.oportunidadesAbertas, helper: 'Cards em andamento', items: data.cardDetails?.oportunidadesAbertas || [], type: 'oportunidades' },
+    { key: 'valor', title: 'Valor em negociação', value: moeda(data.cards.valorNegociacao), helper: 'A partir de proposta enviada', items: data.cardDetails?.valorNegociacao || [], type: 'oportunidades' },
+    { key: 'propostas', title: 'Propostas enviadas', value: data.cards.propostasEnviadas, helper: 'Aguardando avanço', items: data.cardDetails?.propostasEnviadas || [], type: 'oportunidades' },
+    { key: 'previsao', title: 'Previsão de fechamento', value: moeda(data.cards.previsaoFechamento), helper: 'Pipeline com previsão', items: data.cardDetails?.previsaoFechamento || [], type: 'oportunidades' },
+    { key: 'clientesAtivos', title: 'Clientes ativos', value: data.cards.clientesAtivos, helper: 'Base em relacionamento', items: data.cardDetails?.clientesAtivos || [], type: 'clientes' },
+    { key: 'atividades7d', title: 'Atividades 7 dias', value: data.cards.atividades7d, helper: 'Ritmo comercial recente', items: data.cardDetails?.atividades7d || [], type: 'atividades' }
   ]
 
   return (
-    <section>
-      <PageHeader title="Dashboard" subtitle="Visão geral da operação comercial" />
-      <div className="metric-grid">
-        {cards.map((card) => <Metric key={card.key} title={card.title} value={card.value} onClick={() => setModal(card)} />)}
+    <section className="dashboard-executivo">
+      <PageHeader title="Dashboard Executivo" subtitle="Indicadores comerciais para decisão rápida e acompanhamento da carteira" />
+
+      <div className="exec-metric-grid">
+        {cards.map((card) => <Metric key={card.key} title={card.title} value={card.value} helper={card.helper} onClick={() => setModal(card)} />)}
       </div>
-      <div className="two-col">
-        <div className="panel">
-          <h2>Funil por etapa</h2>
-          {data.porEtapa.map((e) => <button className="bar-line clickable-line" key={e.etapa} onClick={() => setModal({ title: e.etapa, value: e.total, type: 'oportunidades', items: (data.oportunidadesPorEtapa || {})[e.etapa] || [] })}><span>{e.etapa}</span><strong>{e.total}</strong></button>)}
-        </div>
-        <div className="panel">
-          <h2>Últimas atividades</h2>
-          {data.atividades.length === 0 && <p className="muted">Nenhuma atividade registrada.</p>}
-          {data.atividades.map((a) => (
-            <div className="mini-item" key={a.id}>
-              <strong>{a.tipo}</strong>
-              <span>{a.cliente?.nomeFantasia || a.cliente?.razaoSocial} • {dataBR(a.data)}</span>
-              <small>Responsável: {a.responsavel?.nome || '-'}</small>
+
+      <div className="dashboard-layout">
+        <div className="panel executive-panel funnel-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Funil comercial</h2>
+              <p>Quantidade e valor por etapa</p>
             </div>
-          ))}
+          </div>
+          <div className="funnel-list">
+            {(data.funilExecutivo || []).map((e) => (
+              <button className="funnel-row" key={e.etapa} onClick={() => setModal({ title: e.etapa, value: e.total, type: 'oportunidades', items: e.items || [] })}>
+                <span className="funnel-name">{e.etapa}</span>
+                <span className="funnel-bar"><i style={{ width: `${Math.max(8, e.percentual || 0)}%` }} /></span>
+                <strong>{e.total}</strong>
+                <b>{moeda(e.valor)}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel executive-panel alerts-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Alertas gerenciais</h2>
+              <p>Prioridades para ação do gestor</p>
+            </div>
+          </div>
+          <div className="alert-grid">
+            {(data.alertas || []).map((a) => (
+              <button className={`alert-card ${a.severidade || ''}`} key={a.key} onClick={() => setModal({ title: a.title, value: a.value, type: a.type || 'oportunidades', items: a.items || [] })}>
+                <span>{a.title}</span>
+                <strong>{a.value}</strong>
+                <small>{a.descricao}</small>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      <div className="dashboard-layout bottom">
+        <div className="panel executive-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Ranking de vendedores</h2>
+              <p>Performance consolidada da carteira</p>
+            </div>
+          </div>
+          <div className="table-wrap compact-table executive-table">
+            <table>
+              <thead>
+                <tr><th>Vendedor</th><th>Abertas</th><th>Propostas</th><th>Valor</th><th>Atividades</th><th>Conversão</th></tr>
+              </thead>
+              <tbody>
+                {(data.rankingVendedores || []).map((v) => (
+                  <tr key={v.id || v.nome}>
+                    <td><strong>{v.nome}</strong></td>
+                    <td>{v.oportunidadesAbertas}</td>
+                    <td>{v.propostasEnviadas}</td>
+                    <td>{moeda(v.valorPropostas)}</td>
+                    <td>{v.atividadesRealizadas}</td>
+                    <td>{v.taxaConversao}%</td>
+                  </tr>
+                ))}
+                {(data.rankingVendedores || []).length === 0 && <tr><td colSpan="6" className="empty-row">Sem dados para ranking.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="panel executive-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Clientes — visão consolidada</h2>
+              <p>Resumo estratégico, sem listar toda a base</p>
+            </div>
+          </div>
+          <div className="client-summary-grid">
+            <button onClick={() => setModal({ title: 'Clientes com oportunidade aberta', value: data.clientesResumo?.comOportunidadeAberta || 0, type: 'clientes', items: data.cardDetails?.clientesComOportunidadeAberta || [] })}><span>Com oportunidade</span><strong>{data.clientesResumo?.comOportunidadeAberta || 0}</strong></button>
+            <button onClick={() => setModal({ title: 'Clientes sem oportunidade aberta', value: data.clientesResumo?.semOportunidadeAberta || 0, type: 'clientes', items: data.cardDetails?.clientesSemOportunidadeAberta || [] })}><span>Sem oportunidade</span><strong>{data.clientesResumo?.semOportunidadeAberta || 0}</strong></button>
+            <button onClick={() => setModal({ title: 'Clientes ativos', value: data.clientesResumo?.ativos || 0, type: 'clientes', items: data.cardDetails?.clientesAtivos || [] })}><span>Ativos</span><strong>{data.clientesResumo?.ativos || 0}</strong></button>
+            <button onClick={() => setModal({ title: 'Novos clientes no mês', value: data.clientesResumo?.novosNoMes || 0, type: 'clientes', items: data.cardDetails?.clientesNovosNoMes || [] })}><span>Novos no mês</span><strong>{data.clientesResumo?.novosNoMes || 0}</strong></button>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel executive-panel last-activities-panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Últimas atividades</h2>
+            <p>Movimentos comerciais recentes</p>
+          </div>
+        </div>
+        <div className="activity-strip">
+          {(data.atividades || []).map((a) => (
+            <button className="activity-card" key={a.id} onClick={() => setModal({ title: 'Atividade', value: a.tipo, type: 'atividades', items: [a] })}>
+              <strong>{a.tipo}</strong>
+              <span>{a.cliente?.nomeFantasia || a.cliente?.razaoSocial || '-'}</span>
+              <small>{dataBR(a.data)} • {a.responsavel?.nome || '-'}</small>
+            </button>
+          ))}
+          {(data.atividades || []).length === 0 && <p className="muted">Nenhuma atividade recente.</p>}
+        </div>
+      </div>
+
       {modal && <DashboardDetalheModal data={modal} onClose={() => setModal(null)} />}
     </section>
   )
 }
 
-function Metric({ title, value, onClick }) {
-  return <button className="metric metric-click" onClick={onClick}><span>{title}</span><strong>{value}</strong><small>Clique para ver detalhes</small></button>
+function Metric({ title, value, helper, onClick }) {
+  return <button className="metric executive-metric metric-click" onClick={onClick}><span>{title}</span><strong>{value}</strong><small>{helper || 'Clique para ver detalhes'}</small></button>
 }
 
 function DashboardDetalheModal({ data, onClose }) {
@@ -236,18 +327,20 @@ function DashboardDetalheModal({ data, onClose }) {
     <Modal title={`${data.title} (${data.value})`} onClose={onClose} wide>
       {items.length === 0 && <p className="muted">Nenhum registro encontrado para este indicador.</p>}
       {items.length > 0 && (
-        <div className="table-wrap compact-table">
+        <div className="table-wrap compact-table executive-detail-table">
           <table>
             <thead>
               <tr>
-                {data.type === 'clientes' ? <><th>Cliente</th><th>Contato</th><th>Telefone</th><th>E-mail</th><th>Vendedor</th></> : <><th>Cliente</th><th>Oportunidade</th><th>Etapa</th><th>Valor</th><th>Responsável</th><th>Próxima ação</th></>}
+                {data.type === 'clientes' ? <><th>Cliente</th><th>Contato</th><th>Telefone</th><th>Segmento</th><th>Proprietário</th><th>Status</th></> : data.type === 'atividades' ? <><th>Data</th><th>Cliente</th><th>Tipo</th><th>Resumo</th><th>Responsável</th></> : <><th>Cliente</th><th>Oportunidade</th><th>Etapa</th><th>Valor</th><th>Responsável</th><th>Previsão</th></>}
               </tr>
             </thead>
             <tbody>
               {items.map((item) => data.type === 'clientes' ? (
-                <tr key={item.id}><td><strong>{item.nomeFantasia}</strong><br /><small>{item.razaoSocial}</small></td><td>{item.contato || '-'}</td><td>{item.telefone || '-'}</td><td>{item.email || '-'}</td><td>{item.vendedor?.nome || item.vendedorNome || '-'}</td></tr>
+                <tr key={item.id}><td><strong>{item.nomeFantasia}</strong><br /><small>{item.razaoSocial}</small></td><td>{item.contato || '-'}</td><td>{item.telefone || '-'}</td><td>{item.segmento || '-'}</td><td>{item.vendedor?.nome || item.vendedorNome || '-'}</td><td>{item.status || '-'}</td></tr>
+              ) : data.type === 'atividades' ? (
+                <tr key={item.id}><td>{dataBR(item.data)}</td><td>{item.cliente?.nomeFantasia || item.cliente?.razaoSocial || '-'}</td><td><strong>{item.tipo}</strong></td><td>{item.resumo || item.observacoes || '-'}</td><td>{item.responsavel?.nome || '-'}</td></tr>
               ) : (
-                <tr key={item.id}><td>{item.cliente?.nomeFantasia || item.cliente?.razaoSocial || '-'}</td><td><strong>{item.titulo}</strong></td><td>{item.etapa}</td><td>{item.etapa === 'Proposta enviada' ? moeda(item.valorProposta) : '-'}</td><td>{item.vendedor?.nome || '-'}</td><td>{item.proximaAcao || '-'}</td></tr>
+                <tr key={item.id}><td>{item.cliente?.nomeFantasia || item.cliente?.razaoSocial || '-'}</td><td><strong>{item.titulo}</strong></td><td>{item.etapa}</td><td>{moeda(item.valorProposta)}</td><td>{item.vendedor?.nome || '-'}</td><td>{dataBR(item.previsaoFechamento)}</td></tr>
               ))}
             </tbody>
           </table>
@@ -596,13 +689,15 @@ function Clientes({ usuario }) {
   const [selecionados, setSelecionados] = useState([])
   const [novoProprietario, setNovoProprietario] = useState('')
   const fileImportRef = useRef(null)
+  const ehAdmin = String(usuario?.perfil || '').toLowerCase().includes('admin')
+  const nomeProprietarioCliente = (c) => c.vendedorNome || c.proprietarioNome || c.responsavelNome || c.vendedor?.nome || c.proprietario?.nome || c.responsavel?.nome || '-'
 
   useEffect(() => { carregar() }, [])
 
   async function carregar() {
     const cls = await request('/clientes')
     setClientes(Array.isArray(cls) ? cls : [])
-    if (usuario.perfil === 'Administrador') setUsuarios(await request('/usuarios'))
+    if (ehAdmin) setUsuarios(await request('/usuarios'))
   }
 
   async function excluir(id) {
@@ -652,7 +747,7 @@ function Clientes({ usuario }) {
   }
 
   async function alterarProprietarioMassa() {
-    if (usuario.perfil !== 'Administrador') return
+    if (!ehAdmin) return
     if (!selecionados.length) return alert('Selecione pelo menos um cliente.')
     if (!novoProprietario) return alert('Selecione o novo proprietário.')
     await request('/clientes/proprietario-massa', { method: 'PATCH', body: JSON.stringify({ clienteIds: selecionados, vendedorId: novoProprietario }) })
@@ -752,7 +847,7 @@ function Clientes({ usuario }) {
 
       <div className="client-list-summary">
         <span>{clientesFiltrados.length} cliente(s) encontrado(s)</span>
-        {usuario.perfil === 'Administrador' && (
+        {ehAdmin && (
           <div className="mass-owner-box">
             <span>{selecionados.length} selecionado(s)</span>
             <select value={novoProprietario} onChange={(e) => setNovoProprietario(e.target.value)}>
@@ -771,16 +866,17 @@ function Clientes({ usuario }) {
       </div>
 
       <div className="table-wrap clients-list clients-list-compact">
-        <table>
+        <table className="clients-table-final">
           <thead>
             <tr>
-              {usuario.perfil === 'Administrador' && <th className="check-col"><input type="checkbox" checked={clientesPagina.length > 0 && clientesPagina.every((c) => selecionados.includes(c.id))} onChange={toggleTodosPagina} /></th>}
+              {ehAdmin && <th className="check-col"><input type="checkbox" checked={clientesPagina.length > 0 && clientesPagina.every((c) => selecionados.includes(c.id))} onChange={toggleTodosPagina} /></th>}
               <th>Nome fantasia</th>
               <th>Contato</th>
               <th>Telefone</th>
               <th>E-mail</th>
               <th>Segmento</th>
               <th>Cidade/UF</th>
+              <th>Proprietário</th>
               <th>Últ. atualização</th>
               <th>Ação</th>
             </tr>
@@ -788,7 +884,7 @@ function Clientes({ usuario }) {
           <tbody>
             {clientesPagina.map((c) => (
               <tr key={c.id}>
-                {usuario.perfil === 'Administrador' && <td className="check-col"><input type="checkbox" checked={selecionados.includes(c.id)} onChange={() => toggleSelecionado(c.id)} /></td>}
+                {ehAdmin && <td className="check-col"><input type="checkbox" checked={selecionados.includes(c.id)} onChange={() => toggleSelecionado(c.id)} /></td>}
                 <td>
                   <button className="link-cell" type="button" onClick={() => setModalDetalheCliente(c.id)}>
                     <strong>{c.nomeFantasia || c.razaoSocial || '-'}</strong>
@@ -800,13 +896,14 @@ function Clientes({ usuario }) {
                 <td className="truncate-cell" title={c.email || ''}>{c.email || '-'}</td>
                 <td>{c.segmento || '-'}</td>
                 <td>{c.cidade || '-'} / {c.estado || '-'}</td>
+                <td>{nomeProprietarioCliente(c)}</td>
                 <td>{dataBR(String(c.atualizadoEm || c.updatedAt || '').slice(0, 10)) || '-'}</td>
                 <td className="td-actions single-action">
                   <button className="icon-action" title="Nova oportunidade" type="button" onClick={() => setModalOp({ clienteId: c.id })}>+</button>
                 </td>
               </tr>
             ))}
-            {clientesPagina.length === 0 && <tr><td colSpan={usuario.perfil === 'Administrador' ? 9 : 8} className="empty-row">Nenhum cliente encontrado para os filtros aplicados.</td></tr>}
+            {clientesPagina.length === 0 && <tr><td colSpan={ehAdmin ? 10 : 9} className="empty-row">Nenhum cliente encontrado para os filtros aplicados.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -903,7 +1000,7 @@ function ClienteDetalhe({ clienteId, usuario, onClose, onNovaOportunidade, onAbr
               </tr>
             ))}
             {(cliente.oportunidades || []).length === 0 && (
-              <tr><td colSpan={usuario.perfil === 'Administrador' ? 9 : 8} className="empty-row">Nenhuma oportunidade aberta visível para este usuário.</td></tr>
+              <tr><td colSpan={ehAdmin ? 10 : 9} className="empty-row">Nenhuma oportunidade aberta visível para este usuário.</td></tr>
             )}
           </tbody>
         </table>
@@ -1039,10 +1136,12 @@ function MiniBarChartRelatorio({ title, data, valueKey = 'total', money = false,
   )
 }
 
+
 function Relatorios({ usuario }) {
   const [data, setData] = useState(null)
   const [erro, setErro] = useState('')
   const [loading, setLoading] = useState(false)
+  const [detalhe, setDetalhe] = useState(null)
   const [filtros, setFiltros] = useState({ vendedorId: '', etapa: '', status: '', temperatura: '', dataInicio: '', dataFim: '', q: '' })
 
   useEffect(() => { carregar() }, [])
@@ -1054,128 +1153,308 @@ function Relatorios({ usuario }) {
       const params = new URLSearchParams()
       Object.entries(filtros).forEach(([k, v]) => { if (v) params.set(k, v) })
       setData(await request(`/relatorios${params.toString() ? `?${params.toString()}` : ''}`))
-    } catch (err) { setErro(err.message) }
-    finally { setLoading(false) }
+    } catch (err) {
+      setErro(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   function limpar() {
-    setFiltros({ vendedorId: '', etapa: '', status: '', temperatura: '', dataInicio: '', dataFim: '', q: '' })
-    setTimeout(() => request('/relatorios').then(setData).catch((err) => setErro(err.message)), 0)
+    const limpo = { vendedorId: '', etapa: '', status: '', temperatura: '', dataInicio: '', dataFim: '', q: '' }
+    setFiltros(limpo)
+    setTimeout(() => carregar(), 0)
+  }
+
+  function abrirDetalhe(title, value, type, items) {
+    setDetalhe({ title, value, type, items: items || [] })
   }
 
   function exportarOportunidades() {
-    baixarCSVRelatorio('oportunidades.csv', data?.oportunidades || [], [
+    baixarCSVRelatorio('relatorio_oportunidades.csv', data?.oportunidades || [], [
       { label: 'Cliente', value: (o) => o.cliente?.nomeFantasia || o.cliente?.razaoSocial || '' },
       { label: 'Oportunidade', value: 'titulo' },
-      { label: 'Vendedor responsável', value: (o) => o.vendedor?.nome || '' },
       { label: 'Etapa', value: 'etapa' },
       { label: 'Status', value: 'status' },
       { label: 'Temperatura', value: 'temperatura' },
       { label: 'Valor', value: (o) => numeroRelatorio(o.valorProposta).toFixed(2).replace('.', ',') },
-      { label: 'Previsão de fechamento', value: (o) => dataBR(o.previsaoFechamento) },
-      { label: 'Última atividade', value: (o) => o.ultimaAtividade?.tipo || '' },
-      { label: 'Atualizado em', value: (o) => dataBR(o.atualizadoEm) }
+      { label: 'Forecast ponderado', value: (o) => numeroRelatorio(o.forecastPonderado).toFixed(2).replace('.', ',') },
+      { label: 'Previsão fechamento', value: (o) => dataBR(o.previsaoFechamento) },
+      { label: 'Vendedor', value: (o) => o.vendedor?.nome || '' },
+      { label: 'Última atualização', value: (o) => dataBR(o.atualizadoEm) }
     ])
   }
 
   function exportarAtividades() {
-    baixarCSVRelatorio('atividades.csv', data?.atividades || [], [
+    baixarCSVRelatorio('relatorio_atividades.csv', data?.atividades || [], [
       { label: 'Data', value: (a) => dataBR(a.data) },
       { label: 'Cliente', value: (a) => a.cliente?.nomeFantasia || a.cliente?.razaoSocial || '' },
       { label: 'Oportunidade', value: (a) => a.oportunidade?.titulo || '' },
       { label: 'Tipo', value: 'tipo' },
       { label: 'Resumo', value: 'resumo' },
       { label: 'Etapa após', value: 'etapaApos' },
-      { label: 'Valor', value: (a) => numeroRelatorio(a.valorProposta).toFixed(2).replace('.', ',') },
       { label: 'Responsável', value: (a) => a.responsavel?.nome || '' }
     ])
   }
 
   function exportarClientes() {
-    baixarCSVRelatorio('clientes.csv', data?.clientes || [], [
+    baixarCSVRelatorio('relatorio_clientes_estrategico.csv', data?.clientes || [], [
       { label: 'Nome fantasia', value: 'nomeFantasia' },
       { label: 'Razão social', value: 'razaoSocial' },
       { label: 'Contato', value: 'contato' },
       { label: 'Telefone', value: 'telefone' },
       { label: 'E-mail', value: 'email' },
+      { label: 'Segmento', value: 'segmento' },
       { label: 'Cidade', value: 'cidade' },
-      { label: 'Status atual', value: 'statusAtual' },
-      { label: 'Vendedor responsável atual', value: 'vendedorResponsavelAtual' },
-      { label: 'Oportunidades abertas', value: (c) => Array.isArray(c.oportunidadesAbertas) ? c.oportunidadesAbertas.length : (c.oportunidadesAbertas || 0) },
-      { label: 'Oportunidades encerradas', value: (c) => Array.isArray(c.oportunidadesEncerradas) ? c.oportunidadesEncerradas.length : (c.oportunidadesEncerradas || 0) },
-      { label: 'Valor total negociado', value: (c) => numeroRelatorio(c.valorTotalNegociado).toFixed(2).replace('.', ',') }
+      { label: 'UF', value: 'estado' },
+      { label: 'Status', value: 'statusAtual' },
+      { label: 'Proprietário', value: 'vendedorResponsavelAtual' },
+      { label: 'Oportunidades abertas', value: 'oportunidadesAbertas' },
+      { label: 'Valor negociado', value: (c) => numeroRelatorio(c.valorTotalNegociado).toFixed(2).replace('.', ',') },
+      { label: 'Última atualização', value: (c) => dataBR(c.atualizadoEm) }
+    ])
+  }
+
+  function exportarRanking() {
+    baixarCSVRelatorio('relatorio_ranking_vendedores.csv', data?.ranking || [], [
+      { label: 'Vendedor', value: 'vendedor' },
+      { label: 'Clientes ativos', value: 'clientesAtivos' },
+      { label: 'Oportunidades abertas', value: 'oportunidadesAbertas' },
+      { label: 'Propostas enviadas', value: 'propostasEnviadas' },
+      { label: 'Valor em propostas', value: (r) => numeroRelatorio(r.valorEmPropostas).toFixed(2).replace('.', ',') },
+      { label: 'Forecast ponderado', value: (r) => numeroRelatorio(r.forecastPonderado).toFixed(2).replace('.', ',') },
+      { label: 'Atividades realizadas', value: 'atividadesRealizadas' },
+      { label: 'Taxa conversão', value: (r) => `${r.taxaConversao || 0}%` },
+      { label: 'Ticket médio', value: (r) => numeroRelatorio(r.ticketMedio).toFixed(2).replace('.', ',') }
     ])
   }
 
   const cards = data?.cards || {}
-  const oportunidadesRelatorio = data?.oportunidades || []
-  const atividadesRelatorio = data?.atividades || []
-  const rankingRelatorio = data?.ranking || []
-  const graficosFallback = {
-    oportunidadesPorEtapa: ETAPAS.map((etapa) => ({ nome: etapa, total: oportunidadesRelatorio.filter((o) => o.etapa === etapa).length })).filter((e) => e.total > 0),
-    valorPorEtapa: ETAPAS.map((etapa) => ({ nome: etapa, valor: oportunidadesRelatorio.filter((o) => o.etapa === etapa).reduce((acc, o) => acc + numeroRelatorio(o.valorProposta), 0) })).filter((e) => e.valor > 0),
-    atividadesPorVendedor: rankingRelatorio.map((r) => ({ nome: r.vendedor, total: r.atividadesRealizadas || 0 })).filter((e) => e.total > 0),
-    atividadesPorTipo: TIPOS_ATIVIDADE.map((tipo) => ({ nome: tipo, total: atividadesRelatorio.filter((a) => a.tipo === tipo).length })).filter((e) => e.total > 0),
-    temperaturaOportunidades: TEMPERATURAS.map((temperatura) => ({ nome: temperatura, total: oportunidadesRelatorio.filter((o) => o.temperatura === temperatura).length })).filter((e) => e.total > 0),
-    conversaoPorVendedor: rankingRelatorio.map((r) => ({ nome: r.vendedor, valor: r.taxaConversao || 0 })).filter((e) => e.valor > 0)
-  }
-  const graficos = Object.fromEntries(Object.entries(graficosFallback).map(([k, fallback]) => {
-    const apiData = data?.graficos?.[k]
-    return [k, Array.isArray(apiData) && apiData.length ? apiData : fallback]
-  }))
+  const funil = data?.funilAnalitico || []
+  const forecastTemperatura = data?.forecastTemperatura || []
+  const ranking = data?.ranking || []
+  const criticas = data?.criticas || []
+  const clientesAnalise = data?.clientesAnalise || {}
+  const atividadesAnalise = data?.atividadesAnalise || {}
+
+  const kpis = [
+    { key: 'receita', title: 'Receita em negociação', value: moeda(cards.receitaNegociacao), helper: 'Pipeline com valor comercial', type: 'oportunidades', items: data?.detalhes?.receitaNegociacao || [] },
+    { key: 'forecast', title: 'Forecast ponderado', value: moeda(cards.forecastPonderado), helper: 'Valor ajustado por temperatura', type: 'oportunidades', items: data?.detalhes?.forecastPonderado || [] },
+    { key: 'propostas', title: 'Propostas enviadas', value: cards.propostasEnviadas || 0, helper: 'Etapas com proposta/negociação', type: 'oportunidades', items: data?.detalhes?.propostasEnviadas || [] },
+    { key: 'abertas', title: 'Oportunidades abertas', value: cards.oportunidadesAbertas || 0, helper: 'Cards em andamento', type: 'oportunidades', items: data?.detalhes?.oportunidadesAbertas || [] },
+    { key: 'conversao', title: 'Taxa de conversão', value: `${cards.taxaConversao || 0}%`, helper: 'Ganhas sobre encerradas', type: 'oportunidades', items: data?.detalhes?.conversao || [] },
+    { key: 'ticket', title: 'Ticket médio proposta', value: moeda(cards.ticketMedioProposta), helper: 'Média das oportunidades com valor', type: 'oportunidades', items: data?.detalhes?.propostasEnviadas || [] },
+    { key: 'ciclo', title: 'Ciclo médio', value: `${cards.cicloMedioDias || 0} dias`, helper: 'Criação até fechamento', type: 'oportunidades', items: data?.detalhes?.cicloMedio || [] },
+    { key: 'atividades', title: 'Atividades no período', value: cards.atividadesPeriodo || 0, helper: 'Volume comercial executado', type: 'atividades', items: data?.atividades || [] }
+  ]
 
   return (
-    <section>
-      <PageHeader title="Relatórios" subtitle="Filtros, gráficos, ranking e exportações da operação comercial" />
-      <div className="reports-filters">
-        <input placeholder="Buscar cliente, oportunidade, CNPJ, responsável..." value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && carregar()} />
-        {usuario.perfil === 'Administrador' && <select value={filtros.vendedorId} onChange={(e) => setFiltros({ ...filtros, vendedorId: e.target.value })}><option value="">Todos os vendedores</option>{(data?.opcoes?.vendedores || []).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select>}
-        <select value={filtros.etapa} onChange={(e) => setFiltros({ ...filtros, etapa: e.target.value })}><option value="">Todas as etapas</option>{ETAPAS.map((e) => <option key={e}>{e}</option>)}</select>
-        <select value={filtros.status} onChange={(e) => setFiltros({ ...filtros, status: e.target.value })}><option value="">Todos os status</option><option>Aberta</option><option>Encerrada</option><option>Cliente ativo</option><option>Perdido</option></select>
-        <select value={filtros.temperatura} onChange={(e) => setFiltros({ ...filtros, temperatura: e.target.value })}><option value="">Todas as temperaturas</option>{TEMPERATURAS.map((t) => <option key={t}>{t}</option>)}</select>
-        <input type="date" value={filtros.dataInicio} onChange={(e) => setFiltros({ ...filtros, dataInicio: e.target.value })} />
-        <input type="date" value={filtros.dataFim} onChange={(e) => setFiltros({ ...filtros, dataFim: e.target.value })} />
-        <button className="btn primary" onClick={carregar} disabled={loading}>{loading ? 'Filtrando...' : 'Filtrar'}</button>
-        <button className="btn ghost" onClick={limpar}>Limpar</button>
+    <section className="relatorios-executivos">
+      <PageHeader
+        title="Relatórios Analíticos"
+        subtitle="Análise executiva de funil, forecast, esforço comercial, carteira e oportunidades críticas"
+        action={<div className="report-actions"><button className="btn ghost" onClick={exportarOportunidades}>Exportar oportunidades</button><button className="btn ghost" onClick={exportarAtividades}>Exportar atividades</button><button className="btn ghost" onClick={exportarClientes}>Exportar clientes</button><button className="btn primary" onClick={exportarRanking}>Exportar ranking</button></div>}
+      />
+
+      <div className="report-filter-panel">
+        {usuario.perfil === 'Administrador' && (
+          <label>Vendedor
+            <select value={filtros.vendedorId} onChange={(e) => setFiltros({ ...filtros, vendedorId: e.target.value })}>
+              <option value="">Todos</option>
+              {(data?.filtros?.vendedores || []).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+            </select>
+          </label>
+        )}
+        <label>Etapa
+          <select value={filtros.etapa} onChange={(e) => setFiltros({ ...filtros, etapa: e.target.value })}>
+            <option value="">Todas</option>
+            {(data?.filtros?.etapas || ETAPAS).map((e) => <option key={e}>{e}</option>)}
+          </select>
+        </label>
+        <label>Status
+          <select value={filtros.status} onChange={(e) => setFiltros({ ...filtros, status: e.target.value })}>
+            <option value="">Todos</option>
+            {(data?.filtros?.status || ['Aberta', 'Encerrada']).map((s) => <option key={s}>{s}</option>)}
+          </select>
+        </label>
+        <label>Temperatura
+          <select value={filtros.temperatura} onChange={(e) => setFiltros({ ...filtros, temperatura: e.target.value })}>
+            <option value="">Todas</option>
+            {(data?.filtros?.temperaturas || TEMPERATURAS).map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </label>
+        <label>Início<input type="date" value={filtros.dataInicio} onChange={(e) => setFiltros({ ...filtros, dataInicio: e.target.value })} /></label>
+        <label>Fim<input type="date" value={filtros.dataFim} onChange={(e) => setFiltros({ ...filtros, dataFim: e.target.value })} /></label>
+        <label className="report-search">Busca<input placeholder="Cliente, oportunidade, contato..." value={filtros.q} onChange={(e) => setFiltros({ ...filtros, q: e.target.value })} /></label>
+        <div className="report-filter-buttons">
+          <button className="btn primary" onClick={carregar} disabled={loading}>{loading ? 'Carregando...' : 'Aplicar'}</button>
+          <button className="btn ghost" onClick={limpar}>Limpar</button>
+        </div>
       </div>
+
       {erro && <div className="alert error">{erro}</div>}
       {!data && !erro && <div className="loading">Carregando relatórios...</div>}
-      {data && <>
-        <div className="metric-grid reports-metrics">
-          <Metric title="Oportunidades abertas" value={cards.oportunidadesAbertas || 0} />
-          <Metric title="Oportunidades encerradas" value={cards.oportunidadesEncerradas || 0} />
-          <Metric title="Valor total negociado" value={moeda(cards.valorTotalNegociado || 0)} />
-          <Metric title="Taxa de conversão" value={percentualRelatorio(cards.taxaConversao || 0)} />
-        </div>
-        <div className="export-row">
-          <button className="btn ghost" onClick={exportarOportunidades}>Exportar oportunidades</button>
-          <button className="btn ghost" onClick={exportarAtividades}>Exportar atividades</button>
-          <button className="btn ghost" onClick={exportarClientes}>Exportar clientes</button>
-        </div>
-        <div className="reports-grid">
-          <MiniBarChartRelatorio title="Oportunidades por etapa" data={graficos.oportunidadesPorEtapa} />
-          <MiniBarChartRelatorio title="Valor por etapa" data={graficos.valorPorEtapa} valueKey="valor" money />
-          <MiniBarChartRelatorio title="Atividades por vendedor" data={graficos.atividadesPorVendedor} />
-          <MiniBarChartRelatorio title="Atividades por tipo" data={graficos.atividadesPorTipo} />
-          <MiniBarChartRelatorio title="Temperatura das oportunidades" data={graficos.temperaturaOportunidades} />
-          <MiniBarChartRelatorio title="Conversão por vendedor" data={graficos.conversaoPorVendedor} valueKey="valor" percent />
-        </div>
-        <div className="panel ranking-panel">
-          <h2>Ranking de vendedores</h2>
-          <div className="table-wrap compact-table"><table><thead><tr><th>Vendedor</th><th>Clientes ativos</th><th>Oportunidades abertas</th><th>Propostas enviadas</th><th>Valor em propostas</th><th>Atividades realizadas</th><th>Taxa de conversão</th></tr></thead><tbody>{(data.ranking || []).map((r) => <tr key={r.vendedorId}><td><strong>{r.vendedor}</strong></td><td>{r.clientesAtivos}</td><td>{r.oportunidadesAbertas}</td><td>{r.propostasEnviadas}</td><td>{moeda(r.valorEmPropostas)}</td><td>{r.atividadesRealizadas}</td><td>{percentualRelatorio(r.taxaConversao)}</td></tr>)}</tbody></table></div>
-        </div>
-        <div className="panel">
-          <h2>Clientes - visão consolidada</h2>
-          <div className="table-wrap compact-table"><table><thead><tr><th>Cliente</th><th>Status atual</th><th>Vendedor responsável da oportunidade</th><th>Oportunidades abertas</th><th>Oportunidades encerradas</th><th>Últimas atividades</th><th>Valor total negociado</th></tr></thead><tbody>{(data.clientes || []).map((c) => <tr key={c.id}><td><strong>{c.nomeFantasia}</strong><br /><small>{c.contato || '-'} • {c.telefone || '-'}</small></td><td>{c.statusAtual}</td><td>{c.vendedorResponsavelAtual || '-'}</td><td>{Array.isArray(c.oportunidadesAbertas) ? c.oportunidadesAbertas.length : (c.oportunidadesAbertas || 0)}</td><td>{Array.isArray(c.oportunidadesEncerradas) ? c.oportunidadesEncerradas.length : (c.oportunidadesEncerradas || 0)}</td><td>{(c.ultimasAtividades || []).slice(0, 2).map((a) => <div key={a.id}><small>{dataBR(a.data)} • {a.tipo}</small></div>)}</td><td>{moeda(c.valorTotalNegociado)}</td></tr>)}</tbody></table></div>
-        </div>
-        <div className="panel">
-          <h2>Oportunidades filtradas</h2>
-          <div className="table-wrap compact-table"><table><thead><tr><th>Cliente</th><th>Oportunidade</th><th>Vendedor</th><th>Etapa</th><th>Status</th><th>Temperatura</th><th>Valor</th><th>Previsão</th><th>Última atualização</th></tr></thead><tbody>{(data.oportunidades || []).map((o) => <tr key={o.id}><td>{o.cliente?.nomeFantasia || '-'}</td><td><strong>{o.titulo}</strong></td><td>{o.vendedor?.nome || '-'}</td><td>{o.etapa}</td><td>{o.status}</td><td>{o.temperatura || '-'}</td><td>{moeda(o.valorProposta)}</td><td>{dataBR(o.previsaoFechamento)}</td><td>{dataBR(o.atualizadoEm)}</td></tr>)}</tbody></table></div>
-        </div>
-      </>}
+
+      {data && (
+        <>
+          <div className="report-kpi-grid">
+            {kpis.map((card) => (
+              <button className="report-kpi-card" key={card.key} onClick={() => abrirDetalhe(card.title, card.value, card.type, card.items)}>
+                <span>{card.title}</span>
+                <strong>{card.value}</strong>
+                <small>{card.helper}</small>
+              </button>
+            ))}
+          </div>
+
+          <div className="report-grid-main">
+            <div className="panel report-panel report-span-2">
+              <div className="panel-title-row"><div><h2>Análise de funil</h2><p>Quantidade, valor, participação e tempo parado por etapa</p></div></div>
+              <div className="table-wrap compact-table report-table">
+                <table>
+                  <thead><tr><th>Etapa</th><th>Qtd.</th><th>Valor total</th><th>Valor médio</th><th>% Funil</th><th>Dias parado</th><th>Últ. atividade</th></tr></thead>
+                  <tbody>
+                    {funil.map((e) => (
+                      <tr key={e.etapa} onClick={() => abrirDetalhe(e.etapa, e.total, 'oportunidades', e.items)} className="click-row">
+                        <td><strong>{e.etapa}</strong></td><td>{e.total}</td><td>{moeda(e.valorTotal)}</td><td>{moeda(e.valorMedio)}</td><td>{e.percentualFunil}%</td><td>{e.diasMediosParado}d</td><td>{e.ultimaAtividadeMediaDias}d</td>
+                      </tr>
+                    ))}
+                    {!funil.length && <tr><td colSpan="7" className="empty-row">Sem oportunidades no período.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="panel report-panel">
+              <div className="panel-title-row"><div><h2>Forecast por temperatura</h2><p>Probabilidade comercial ponderada</p></div></div>
+              <div className="forecast-list">
+                {forecastTemperatura.map((t) => (
+                  <button key={t.temperatura} onClick={() => abrirDetalhe(`Temperatura ${t.temperatura}`, moeda(t.valorTotal), 'oportunidades', t.items)}>
+                    <div><strong>{t.temperatura}</strong><span>{t.total} oportunidade(s) • prob. {t.probabilidade}%</span></div>
+                    <b>{moeda(t.forecast)}</b>
+                  </button>
+                ))}
+                {!forecastTemperatura.length && <p className="muted">Sem propostas com temperatura informada.</p>}
+              </div>
+            </div>
+          </div>
+
+          <div className="report-grid-main">
+            <div className="panel report-panel">
+              <div className="panel-title-row"><div><h2>Ranking comercial</h2><p>Performance por vendedor</p></div></div>
+              <div className="table-wrap compact-table report-table">
+                <table>
+                  <thead><tr><th>Vendedor</th><th>Abertas</th><th>Propostas</th><th>Valor</th><th>Forecast</th><th>Ativ.</th><th>Conv.</th></tr></thead>
+                  <tbody>
+                    {ranking.map((r) => (
+                      <tr key={r.vendedorId || r.vendedor}>
+                        <td><strong>{r.vendedor}</strong><br /><small>{r.clientesAtivos || 0} cliente(s) ativo(s)</small></td>
+                        <td>{r.oportunidadesAbertas}</td><td>{r.propostasEnviadas}</td><td>{moeda(r.valorEmPropostas)}</td><td>{moeda(r.forecastPonderado)}</td><td>{r.atividadesRealizadas}</td><td>{r.taxaConversao}%</td>
+                      </tr>
+                    ))}
+                    {!ranking.length && <tr><td colSpan="7" className="empty-row">Sem dados para ranking.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="panel report-panel">
+              <div className="panel-title-row"><div><h2>Oportunidades críticas</h2><p>Riscos e pendências que exigem ação</p></div></div>
+              <div className="critical-list">
+                {criticas.map((c) => (
+                  <button key={c.key} className={c.severidade || ''} onClick={() => abrirDetalhe(c.title, c.total, c.type || 'oportunidades', c.items)}>
+                    <div><strong>{c.title}</strong><span>{c.descricao}</span></div>
+                    <b>{c.total}</b>
+                  </button>
+                ))}
+                {!criticas.length && <p className="muted">Nenhum ponto crítico encontrado.</p>}
+              </div>
+            </div>
+          </div>
+
+          <div className="report-grid-main">
+            <div className="panel report-panel">
+              <div className="panel-title-row"><div><h2>Clientes — análise estratégica</h2><p>Resumo da carteira sem listar toda a base</p></div></div>
+              <div className="client-strategy-grid">
+                <button onClick={() => abrirDetalhe('Clientes com oportunidade aberta', clientesAnalise.comOportunidadeAberta || 0, 'clientes', data?.detalhes?.clientesComOportunidadeAberta || [])}><span>Com oportunidade</span><strong>{clientesAnalise.comOportunidadeAberta || 0}</strong></button>
+                <button onClick={() => abrirDetalhe('Clientes sem oportunidade aberta', clientesAnalise.semOportunidadeAberta || 0, 'clientes', data?.detalhes?.clientesSemOportunidadeAberta || [])}><span>Sem oportunidade</span><strong>{clientesAnalise.semOportunidadeAberta || 0}</strong></button>
+                <button onClick={() => abrirDetalhe('Clientes ativos', clientesAnalise.ativos || 0, 'clientes', data?.detalhes?.clientesAtivos || [])}><span>Ativos</span><strong>{clientesAnalise.ativos || 0}</strong></button>
+                <button onClick={() => abrirDetalhe('Clientes perdidos/inativos', clientesAnalise.perdidosInativos || 0, 'clientes', data?.detalhes?.clientesPerdidosInativos || [])}><span>Perdidos/Inativos</span><strong>{clientesAnalise.perdidosInativos || 0}</strong></button>
+                <button onClick={() => abrirDetalhe('Novos clientes no período', clientesAnalise.novosPeriodo || 0, 'clientes', data?.detalhes?.clientesNovosPeriodo || [])}><span>Novos período</span><strong>{clientesAnalise.novosPeriodo || 0}</strong></button>
+                <button onClick={() => abrirDetalhe('Clientes com follow-up vencido', clientesAnalise.followupVencido || 0, 'clientes', data?.detalhes?.clientesFollowupVencido || [])}><span>Follow-up vencido</span><strong>{clientesAnalise.followupVencido || 0}</strong></button>
+              </div>
+              <div className="segment-list">
+                <h3>Top segmentos</h3>
+                {(clientesAnalise.porSegmento || []).slice(0, 6).map((s) => <div key={s.segmento}><span>{s.segmento}</span><strong>{s.total}</strong></div>)}
+              </div>
+            </div>
+
+            <div className="panel report-panel">
+              <div className="panel-title-row"><div><h2>Atividades comerciais</h2><p>Esforço comercial por tipo e por vendedor</p></div></div>
+              <div className="activity-analytics">
+                <div>
+                  <h3>Por tipo</h3>
+                  {(atividadesAnalise.porTipo || []).slice(0, 7).map((a) => <button key={a.tipo} onClick={() => abrirDetalhe(a.tipo, a.total, 'atividades', a.items)}><span>{a.tipo}</span><strong>{a.total}</strong></button>)}
+                </div>
+                <div>
+                  <h3>Por vendedor</h3>
+                  {(atividadesAnalise.porVendedor || []).slice(0, 7).map((a) => <button key={a.vendedor}><span>{a.vendedor}</span><strong>{a.total}</strong></button>)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel report-panel">
+            <div className="panel-title-row"><div><h2>Últimas atividades relevantes</h2><p>Movimentos recentes filtrados no período</p></div></div>
+            <div className="table-wrap compact-table report-table">
+              <table>
+                <thead><tr><th>Data</th><th>Cliente</th><th>Tipo</th><th>Resumo</th><th>Etapa após</th><th>Responsável</th></tr></thead>
+                <tbody>
+                  {(atividadesAnalise.ultimas || []).slice(0, 12).map((a) => (
+                    <tr key={a.id}><td>{dataBR(a.data)}</td><td>{a.cliente?.nomeFantasia || a.cliente?.razaoSocial || '-'}</td><td><strong>{a.tipo}</strong></td><td>{a.resumo || a.observacoes || '-'}</td><td>{a.etapaApos || '-'}</td><td>{a.responsavel?.nome || '-'}</td></tr>
+                  ))}
+                  {!(atividadesAnalise.ultimas || []).length && <tr><td colSpan="6" className="empty-row">Sem atividades no período.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {detalhe && <RelatorioDetalheModal data={detalhe} onClose={() => setDetalhe(null)} />}
     </section>
   )
 }
+
+function RelatorioDetalheModal({ data, onClose }) {
+  const items = data.items || []
+  return (
+    <Modal title={`${data.title} — ${data.value}`} onClose={onClose} wide>
+      {items.length === 0 && <p className="muted">Nenhum registro encontrado para este indicador.</p>}
+      {items.length > 0 && (
+        <div className="table-wrap compact-table report-detail-table">
+          <table>
+            <thead>
+              <tr>
+                {data.type === 'clientes' ? <><th>Cliente</th><th>Contato</th><th>Telefone</th><th>Segmento</th><th>Proprietário</th><th>Status</th></> : data.type === 'atividades' ? <><th>Data</th><th>Cliente</th><th>Tipo</th><th>Resumo</th><th>Responsável</th></> : <><th>Cliente</th><th>Oportunidade</th><th>Etapa</th><th>Valor</th><th>Temperatura</th><th>Responsável</th></>}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => data.type === 'clientes' ? (
+                <tr key={item.id}><td><strong>{item.nomeFantasia || item.razaoSocial}</strong><br /><small>{item.razaoSocial}</small></td><td>{item.contato || '-'}</td><td>{item.telefone || '-'}</td><td>{item.segmento || '-'}</td><td>{item.vendedor?.nome || item.vendedorNome || item.vendedorResponsavelAtual || '-'}</td><td>{item.status || item.statusAtual || '-'}</td></tr>
+              ) : data.type === 'atividades' ? (
+                <tr key={item.id}><td>{dataBR(item.data)}</td><td>{item.cliente?.nomeFantasia || item.cliente?.razaoSocial || '-'}</td><td><strong>{item.tipo}</strong></td><td>{item.resumo || item.observacoes || '-'}</td><td>{item.responsavel?.nome || '-'}</td></tr>
+              ) : (
+                <tr key={item.id}><td>{item.cliente?.nomeFantasia || item.cliente?.razaoSocial || '-'}</td><td><strong>{item.titulo}</strong></td><td>{item.etapa}</td><td>{moeda(item.valorProposta)}</td><td>{item.temperatura || '-'}</td><td>{item.vendedor?.nome || '-'}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 
 function Usuarios() {
   const [usuarios, setUsuarios] = useState([])
